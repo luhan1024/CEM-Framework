@@ -12,8 +12,19 @@ From the project root:
 ```powershell
 $env:PYTHONPATH = "$PWD\Code"
 python Code/cem_framework/examples/poisson_smoke.py
+python Code/cem_framework/examples/heterogeneous_ritz_pool.py
 python -m unittest discover -s Code/cem_framework/tests -v
 ```
+
+`heterogeneous_ritz_pool.py` is a deterministic finite-dimensional SPD Ritz
+tutorial. It composes an `AnalyticLearner` and a `LocalBasisLearner` with
+`DiscreteRitzProblem`, `RitzCandidateScorer`, `CandidatePool`,
+`BestPredictedGainSelector`, `FullyCorrectivePolicy`, `SolverState`,
+`CEMSolver`, and `WorkLedger`. The output shows candidate family/support/
+provenance, finite-pool selections, objective decrease, score-prediction
+identity checks, and stable ledger event IDs. It is only a software
+composition demo: it is not a PDE benchmark, convergence evidence, or a
+novelty claim, and it does not run Julia/Arb or alter Case data.
 
 Define a `LinearPDEProblem` with `(A, f, W)`, assemble any number of
 `WeakLearner` implementations, choose a scorer and `MeritDecreasePolicy`, and
