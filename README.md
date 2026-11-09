@@ -12,6 +12,7 @@ From the project root:
 ```powershell
 $env:PYTHONPATH = "$PWD\Code"
 python Code/cem_framework/examples/poisson_smoke.py
+python Code/cem_framework/examples/poisson_ritz_regression.py
 python Code/cem_framework/examples/heterogeneous_ritz_pool.py
 python -m unittest discover -s Code/cem_framework/tests -v
 ```
@@ -25,6 +26,16 @@ provenance, finite-pool selections, objective decrease, score-prediction
 identity checks, and stable ledger event IDs. It is only a software
 composition demo: it is not a PDE benchmark, convergence evidence, or a
 novelty claim, and it does not run Julia/Arb or alter Case data.
+
+`poisson_ritz_regression.py` is a separate fixed-grid 1D Poisson software
+regression: a 3-node finite-difference SPD matrix with `h=1/4` and
+`f=ones(3)`, coordinate/hat candidates, finite-pool selection, and fully
+corrective refits. It checks objective monotonicity, score-prediction
+identity, the offline oracle `np.linalg.solve(K, f) =
+[3/32, 1/8, 3/32]`, final residual/value tolerances, JSON serialization, and
+ledger event references. It deliberately uses one fixed grid only; it is not
+a continuous-PDE certificate, mesh-convergence or speed comparison, research
+benchmark, or novelty evidence.
 
 Define a `LinearPDEProblem` with `(A, f, W)`, assemble any number of
 `WeakLearner` implementations, choose a scorer and `MeritDecreasePolicy`, and
