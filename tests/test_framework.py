@@ -35,8 +35,26 @@ class FrameworkTests(unittest.TestCase):
         c=Candidate("e","family",np.array([1.,2.]),np.array([3.,4.]),{"support":"x"},{"width":.2},7,{"source":"test"},{"proposal":1.})
         self.assertTrue(np.array_equal(candidate_from_json(candidate_to_json(c)).correction,c.correction)); self.assertRaises((TypeError, AttributeError), lambda: c.support.__setitem__("x", "changed")); self.assertFalse(c.correction.flags.writeable)
         self.assertIsInstance(CorrectionLedger().to_dicts(), list)
+
+    def test_candidate_arrays_and_nested_mappings_are_stable_snapshots(self):
+        basis=np.array([1.]); backing={"value": 1}; c=Candidate("stable","x",basis,None,{"nested": __import__("types").MappingProxyType(backing)}, {},None,{})
+        with self.assertRaises(ValueError): c.correction.flags.writeable=True
+        with self.assertRaises(ValueError): c.correction[0]=2
+        self.assertFalse(c.correction.flags.owndata)
+        base=c.correction.base
+        while isinstance(base, np.ndarray):
+            with self.assertRaises(ValueError): base.flags.writeable=True
+            base=base.base
+        backing["value"]=9
+        self.assertEqual(c.support["nested"]["value"],1)
+
+        image=Candidate("image","x",basis,np.array([2.]),{}, {},None,{}).operator_image
+        base=image.base
+        while isinstance(base, np.ndarray):
+            with self.assertRaises(ValueError): base.flags.writeable=True
+            base=base.base
     def test_patch_replace_remove_is_atomic(self):
-        p=self.problem(); a=AnalyticLearner("a",np.array([1.,0.,0.]),"a"); b=AnalyticLearner("b",np.array([0.,1.,0.]),"b"); s=CEMSolver(p,(a,b),LinearCandidateScorer(),FullyCorrectivePolicy(),SolverState(np.zeros(3))); s.step(); cb=b.propose(p,s.state,p.residual(s.state),{}); s.patch(append=(cb,)); self.assertEqual(s.state.active_element_ids,("a","b")); s.patch(remove=("b",)); self.assertEqual(s.state.active_element_ids,("a",)); before=s.state.hash(); bad=Candidate("a","a",np.array([0.,0.,1.]),np.array([1.,0.,0.]),{}, {},None,{}); self.assertRaises(ValueError, lambda: s.patch(replace={"a":bad})); self.assertEqual(before,s.state.hash()); self.assertRaises(ValueError, lambda: s.patch(remove=("missing",))); self.assertTrue(any(r.status == "patch_accepted" for r in s.ledger.records)); self.assertTrue(any(r.status.startswith("patch_rejected") for r in s.ledger.records))
+        p=self.problem(); a=AnalyticLearner("a",np.array([1.,0.,0.]),"a"); b=AnalyticLearner("b",np.array([0.,1.,0.]),"b"); s=CEMSolver(p,(a,b),LinearCandidateScorer(),FullyCorrectivePolicy(),SolverState(np.zeros(3))); s.step(); cb=b.propose(p,s.state,p.residual(s.state),{}); s.patch(append=(cb,)); self.assertEqual(s.state.active_element_ids,("a","b")); self.assertTrue(s.ledger.records[-1].work_event_ids); self.assertTrue(set(s.ledger.records[-1].work_event_ids).issubset({e.event_id for e in s.work_ledger.events})); s.patch(remove=("b",)); self.assertEqual(s.state.active_element_ids,("a",)); before=s.state.hash(); bad=Candidate("a","a",np.array([0.,0.,1.]),np.array([1.,0.,0.]),{}, {},None,{}); self.assertRaises(ValueError, lambda: s.patch(replace={"a":bad})); self.assertEqual(before,s.state.hash()); self.assertRaises(ValueError, lambda: s.patch(remove=("missing",))); self.assertTrue(any(r.status == "patch_accepted" for r in s.ledger.records)); self.assertTrue(any(r.status.startswith("patch_rejected") for r in s.ledger.records))
     def test_fully_corrective_requires_linear_problem(self):
         p=NonlinearPDEProblem(lambda x: x, lambda x: float(np.dot(x,x))); self.assertRaises(TypeError, lambda: CEMSolver(p,(),NonlinearCandidateScorer(),FullyCorrectivePolicy(),SolverState(np.zeros(2))))
         class FakeLinear:

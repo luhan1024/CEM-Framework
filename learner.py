@@ -1,16 +1,49 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol, Mapping, Any
+from collections.abc import Mapping as ABCMapping
 import hashlib
 import numpy as np
 from types import MappingProxyType
 
-def _freeze(value):
+def _freeze(value, path="metadata", active=None):
+    if active is None: active = set()
+    if value is None or isinstance(value, (str, bool, int)): return value
+    if isinstance(value, np.generic): return _freeze(value.item(), path, active)
+    if isinstance(value, float):
+        if not np.isfinite(value): raise ValueError(f"{path} contains a non-finite number")
+        return value
     if isinstance(value, np.ndarray):
-        out = value.copy(); out.setflags(write=False); return out
-    if isinstance(value, dict): return MappingProxyType({k: _freeze(v) for k,v in value.items()})
-    if isinstance(value, (list, tuple)): return tuple(_freeze(v) for v in value)
-    return value
+        identity = id(value)
+        if identity in active: raise ValueError(f"{path} contains a cycle")
+        active.add(identity)
+        try: return _freeze(value.tolist(), path, active)
+        finally: active.remove(identity)
+    if isinstance(value, ABCMapping):
+        identity = id(value)
+        if identity in active: raise ValueError(f"{path} contains a cycle")
+        active.add(identity)
+        try:
+            frozen = {}
+            for key, item in value.items():
+                if not isinstance(key, str): raise TypeError(f"{path} keys must be strings")
+                frozen[key] = _freeze(item, f"{path}.{key}", active)
+            return MappingProxyType(frozen)
+        finally: active.remove(identity)
+    if isinstance(value, (list, tuple)):
+        identity = id(value)
+        if identity in active: raise ValueError(f"{path} contains a cycle")
+        active.add(identity)
+        try: return tuple(_freeze(item, f"{path}[{i}]", active) for i, item in enumerate(value))
+        finally: active.remove(identity)
+    raise TypeError(f"{path} contains unsupported value type {type(value).__name__}")
+
+def _readonly_array(value):
+    storage = np.array(value, dtype=float, copy=True)
+    backing = storage.tobytes(order="C")
+    view = np.frombuffer(backing, dtype=storage.dtype, count=storage.size).reshape(storage.shape)
+    view.setflags(write=False)
+    return view
 
 @dataclass(frozen=True)
 class Candidate:
@@ -25,12 +58,18 @@ class Candidate:
     proposal_cost: Mapping[str, float] = field(default_factory=dict)
     version: str = "1"
     def __post_init__(self):
-        c = np.array(self.correction, dtype=float, copy=True)
+        if isinstance(self.seed, (bool, np.bool_)):
+            raise TypeError("candidate seed must be an integer or None")
+        if isinstance(self.seed, np.integer):
+            object.__setattr__(self, "seed", int(self.seed))
+        elif self.seed is not None and not isinstance(self.seed, int):
+            raise TypeError("candidate seed must be an integer or None")
+        c = _readonly_array(self.correction)
         if c.ndim != 1 or not np.all(np.isfinite(c)): raise ValueError("candidate correction must be finite 1-D")
-        c.setflags(write=False); object.__setattr__(self, "correction", c)
+        object.__setattr__(self, "correction", c)
         if self.operator_image is not None:
-            image = np.array(self.operator_image, dtype=float, copy=True); image.setflags(write=False); object.__setattr__(self, "operator_image", image)
-        object.__setattr__(self, "support", _freeze(dict(self.support))); object.__setattr__(self, "parameters", _freeze(dict(self.parameters))); object.__setattr__(self, "provenance", _freeze(dict(self.provenance))); object.__setattr__(self, "proposal_cost", _freeze(dict(self.proposal_cost)))
+            image = _readonly_array(self.operator_image); object.__setattr__(self, "operator_image", image)
+        object.__setattr__(self, "support", _freeze(self.support, "support")); object.__setattr__(self, "parameters", _freeze(self.parameters, "parameters")); object.__setattr__(self, "provenance", _freeze(self.provenance, "provenance")); object.__setattr__(self, "proposal_cost", _freeze(self.proposal_cost, "proposal_cost"))
     def fingerprint(self):
         return hashlib.sha256(self.correction.tobytes()).hexdigest()
 

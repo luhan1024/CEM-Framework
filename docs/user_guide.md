@@ -42,8 +42,23 @@ baseline, but `active_element_ids=()` and `outer_coefficients=None` or an
 empty array are required for every policy. Any non-empty coefficient array,
 including all-zero values, fails fast rather than being silently discarded.
 Checkpoint registry restoration is not implemented. Fully-corrective mode also
-requires an actual `LinearPDEProblem` instance (including its matrix-free
-operator support).
+requires an actual `LinearPDEProblem`, `DiscreteRitzProblem`, or
+`MatrixFreeRitzProblem` instance.
+
+`DiscreteRitzProblem` plus `RitzCandidateScorer` is a separate finite-dimensional
+energy path for an explicit dense SPD matrix. It minimizes
+`J(u)=0.5*u.T@K@u-source.T@u`, uses the Ritz curvature/correlation identity,
+and solves the Ritz Gram system in fully-corrective mode. It deliberately does
+not reinterpret the strong-residual scorer, densify arbitrary operators, or
+claim a continuous weak-form/PDE energy certificate; tests are algebraic and
+software-level only.
+
+`MatrixFreeRitzProblem` accepts a square `Operator`/`CallableOperator` and
+requires the explicit string `spd_assumption="caller_declared"`; it never
+materializes `K`, and that declaration is not a global SPD proof. Fully-
+corrective mode applies the operator to each active correction column to form
+the Gram matrix and rejects nonfinite, nonsymmetric, or ill-conditioned
+systems without ridge or pseudoinverse.
 
 Custom policies may provide their own `decide(score) -> bool`, but their
 `mode` must be absent (defaulting to stagewise), `"stagewise"`, or
@@ -90,6 +105,30 @@ before calling learners; invalid residuals are rejected and logged. A custom
 problem/operator remains responsible for producing a numerically meaningful
 residual within that boundary.
 
+## Opt-in finite candidate pools
+
+`CandidatePool` is an immutable batch with a stable `pool_id` covering
+candidate semantic contents, generation metadata, and the normalized active
+element set. Candidate arrays and nested provenance mappings are owned
+snapshots; post-construction mutation attempts fail. `step_pool(selector)` is
+opt-in; it proposes every configured learner from one solver snapshot and one
+residual, scores each candidate at most once, and records proposal/score
+failures. `BestPredictedGainSelector` considers only finite, valid,
+positive-predicted-gain candidates and uses `element_id` plus full candidate
+hash for deterministic ties. It is order-independent. A selected candidate is
+still passed through the normal acceptance policy; rejection does not retry a
+runner-up. The pool ledger records candidate statuses, proposal cost metadata
+(not measured runtime), selected/max gain, and
+`finite_pool_realized_ratio` (or an unavailable reason). Scoring cost is not
+measured in P0; score outcomes/statuses and failure reasons are recorded
+instead. This ratio
+is an empirical finite-pool diagnostic, not a continuous-dictionary or WOGA
+guarantee. No gamma selector is implemented.
+Pool audits retain frozen, JSON-friendly generation metadata and the
+caller-declared budget, plus separate stable selector identity and rule fields.
+These are provenance declarations rather than verified randomness,
+dictionary-coverage, or weak-greedy guarantees; budgets are not measured work.
+
 ## Fully-corrective patching
 
 `solver.patch(append=(candidate,), replace={id: candidate}, remove=(id,))`
@@ -113,4 +152,21 @@ Inspect `solver.ledger.records` after every proposal. Rejected records retain
 the status/reason and state hashes. Common statuses include shape mismatch,
 stale operator image, inadmissible trial, zero/nonfinite operator image,
 exception, and patch rejection. `CorrectionLedger.to_dicts()` is the stable
-JSON-friendly export path.
+JSON-friendly export path. During export only, non-finite floating values
+(NaN and +/-Inf) become JSON `null`; in-memory diagnostic values are
+unchanged, and unsupported objects still fail serialization.
+
+When a `WorkLedger` is supplied to `CEMSolver`, measured proposal, score,
+operator, objective, refit, failure, and wall-span events are appended
+separately. Estimated proposal metadata is not measured work. The built-in
+`LinearPDEProblem` emits operator/objective counters when its writable
+`work_ledger` field is attached; custom problem plugins without that hook are
+not automatically instrumented.
+Cost-event metadata is recursively snapshotted on append. Nested mappings and
+sequences cannot be changed through caller aliases or through the event, while
+`to_dicts()` returns a detached export that callers may edit independently.
+Unsupported objects, cycles, nonfinite numbers, and non-string mapping keys
+are rejected before an event is recorded.
+The public `patch()` operation is instrumented as a separate step/attempt with
+an exclusive wall span, and its measured events are linked to the accepted or
+rollback record.
