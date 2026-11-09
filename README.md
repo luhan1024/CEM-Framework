@@ -51,11 +51,26 @@ the before/after hashes, objective, touched IDs and estimated work. “frozen”
 means not touched by that update, not that the PDE solution is spatially
 unchanged outside support.
 
-NumPy is the required core dependency. SciPy and PyTorch adapters are optional
-extras and are not imported by this package. Install locally with
+No policy currently supports active-set checkpoint restart. An initial
+`state.values` may be any finite baseline, but `active_element_ids` must be
+empty and `outer_coefficients` must be `None` or empty for every policy.
+
+NumPy is the only core dependency. There are currently no built-in SciPy or
+PyTorch adapters; users may use those libraries inside their own operator,
+learner, or scorer components. Install locally with
 `python -m pip install -e Code/cem_framework` or run directly with
 `PYTHONPATH=Code`. Python 3.10+ is supported.
 
 The current public package deliberately does not expose a BlockPolicy: block
 selection/refit semantics require a separate, explicit block candidate
 contract and are not silently treated as stagewise updates.
+
+Detailed usage and API contracts are in
+[`docs/user_guide.md`](docs/user_guide.md) and
+[`docs/api_reference.md`](docs/api_reference.md).
+
+Learners are tried in the tuple order supplied to `CEMSolver`; the first
+candidate accepted by the policy is committed and `step()` returns. The solver
+does not score all learners and select a best candidate. Custom policies may
+customize `decide(score)`, but `mode` must be omitted (defaulting to
+stagewise), `"stagewise"`, or `"fully_corrective"`; unknown modes are rejected.

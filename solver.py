@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 from .state import SolverState, StateTransaction
 from .ledger import CorrectionLedger, CorrectionRecord
+from .problem import LinearPDEProblem
 
 @dataclass
 class CEMSolver:
@@ -14,9 +15,16 @@ class CEMSolver:
     ledger: CorrectionLedger | None = None
     def __post_init__(self):
         self.learners = tuple(self.learners); self.ledger = self.ledger or CorrectionLedger()
+        mode = getattr(self.policy, "mode", "stagewise")
+        if mode not in ("stagewise", "fully_corrective"):
+            raise ValueError("policy.mode must be 'stagewise' or 'fully_corrective'")
         if hasattr(self.problem, "validate_state"): self.problem.validate_state(self.state)
-        if getattr(self.policy, "mode", "stagewise") == "fully_corrective" and not hasattr(self.problem, "operator"):
+        if mode == "fully_corrective" and not isinstance(self.problem, LinearPDEProblem):
             raise TypeError("FullyCorrectivePolicy requires LinearPDEProblem")
+        if mode in ("stagewise", "fully_corrective"):
+            coeff = self.state.outer_coefficients
+            if self.state.active_element_ids or (coeff is not None and np.asarray(coeff).size):
+                raise ValueError("solver restart requires active_element_ids=() and outer_coefficients=None or empty; checkpoint registry restore is not implemented")
         self._base_values = self.state.values.copy(); self._active_candidates = {}
 
     def _record(self, candidate, before, score, accepted, status, touched=(), frozen=()):
@@ -39,7 +47,15 @@ class CEMSolver:
         return values, coeff, ids
 
     def step(self, budget=None):
-        budget = {} if budget is None else dict(budget); residual = self.problem.residual(self.state)
+        budget = {} if budget is None else dict(budget); before_hash = self.state.hash()
+        try:
+            residual = np.asarray(self.problem.residual(self.state), dtype=float)
+            if residual.ndim != 1 or not np.all(np.isfinite(residual)):
+                raise ValueError("problem residual must be a finite one-dimensional array")
+        except Exception as exc:
+            failure = type("Failure", (), {"q": np.nan, "predicted_reduction": np.nan, "before": np.nan, "after": np.nan})()
+            self._record(None, before_hash, failure, False, f"invalid_residual:{type(exc).__name__}:{exc}", (), self.state.active_element_ids)
+            return None
         for learner in self.learners:
             before_hash = self.state.hash(); candidate = None; registry_before = dict(self._active_candidates)
             try:
