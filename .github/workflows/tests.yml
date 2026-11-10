@@ -1,0 +1,51 @@
+name: cem-framework-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  software-tests:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package and build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Compile Python sources
+        run: python -m compileall -q . examples tests
+
+      - name: Run complete unittest suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Run deterministic software examples
+        run: |
+          python examples/poisson_smoke.py
+          python examples/poisson_ritz_regression.py
+          python examples/heterogeneous_ritz_pool.py
+
+      - name: Build wheel in a temporary directory
+        run: python -m pip wheel --no-deps . --wheel-dir "${{ runner.temp }}/cem-framework-wheel"
+
+      - name: State evidence boundary
+        run: >
+          python -c "print('CI covers software/API paths only; it does not establish PDE
+          continuous-error, convergence, benchmark, or novelty claims.')"
