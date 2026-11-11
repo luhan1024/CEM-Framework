@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from cem_framework import EquilibratedFlux1DEstimator, P1Poisson1DData
+from estimators_1d import EquilibratedFlux1DEstimator, P1Poisson1DData
 
 
 class EquilibratedFlux1DTests(unittest.TestCase):

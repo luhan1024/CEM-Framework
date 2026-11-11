@@ -1,7 +1,11 @@
 import unittest
 from unittest.mock import patch
 import numpy as np
-from cem_framework import *
+from core import *
+from enrichment import *
+from problems import *
+from solver import *
+from strategies import *
 
 class RitzTests(unittest.TestCase):
     def test_matrix_free_large_operator_no_densification_and_ledger(self):

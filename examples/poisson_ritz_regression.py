@@ -17,17 +17,11 @@ SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from cem_framework import (  # noqa: E402
-    BestPredictedGainSelector,
-    CandidatePool,
-    CEMSolver,
-    DiscreteRitzProblem,
-    FullyCorrectivePolicy,
-    LocalBasisLearner,
-    RitzCandidateScorer,
-    SolverState,
-    WorkLedger,
-)
+from core import SolverState, WorkLedger  # noqa: E402
+from enrichment import BestPredictedGainSelector, CandidatePool, LocalBasisLearner  # noqa: E402
+from problems import DiscreteRitzProblem  # noqa: E402
+from solver import CEMSolver  # noqa: E402
+from strategies import FullyCorrectivePolicy, RitzCandidateScorer  # noqa: E402
 
 
 def run_regression() -> dict:

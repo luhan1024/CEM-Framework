@@ -1,7 +1,11 @@
 import unittest
 import json
 import numpy as np
-from cem_framework import *
+from core import *
+from enrichment import *
+from problems import *
+from solver import *
+from strategies import *
 
 class CostTests(unittest.TestCase):
     def test_measured_calls_attach_to_step_record(self):

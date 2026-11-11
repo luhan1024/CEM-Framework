@@ -1,5 +1,17 @@
 # API reference
 
+## Module organization
+
+The `src/` directory is the import-isolation boundary. Public imports are
+provided by the responsibility packages `core`, `problems`, `enrichment`, and
+`strategies`; `solver.py` and the limited `estimators_1d.py` adapter are source
+root modules. For example, import `CEMSolver` from `solver`, problem types from
+`problems`, candidate types from `enrichment`, and scoring policies from
+`strategies`. There is intentionally no umbrella import namespace.
+
+These short top-level names are generic and can collide with unrelated
+modules. A dedicated environment or an isolated `src/` path is recommended.
+
 ## `LinearPDEProblem`
 
 `LinearPDEProblem(operator, source, weights=None, feasible=None)`

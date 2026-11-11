@@ -10,8 +10,8 @@ from scientific manuscript and legacy Case 1--6 outputs.
   `08354e2d3b5400c842dbcd662abe5081be8853b6`.
 - Local evidence on TensorFlow Conda Python 3.11.13: `compileall` passed,
   unittest passed 62/62, all three examples passed, wheel build passed, and
-  `git diff --check` passed. The wheel included
-  `cem_framework/estimators_1d.py`.
+  `git diff --check` passed. The wheel contained the estimator module in the
+  then-current package layout; this is historical Stage-A evidence only.
 - GitHub Actions run `42991047091` completed successfully for the exact commit
   SHA. All six Ubuntu/Windows × Python 3.10/3.11/3.12 jobs are green.
 
@@ -27,22 +27,25 @@ from scientific manuscript and legacy Case 1--6 outputs.
 - Do not migrate or modify legacy Case scripts, reviewer assets, manuscript
   sources, figures, data, or generated paper outputs.
 
-## C. Standardize package layout in the relocated repository
+## C. Standardize the package layout in the relocated repository
 
 Path mapping:
 
 | Current repository path | Destination repository path |
 | --- | --- |
-| flat package modules (`__init__.py`, `solver.py`, etc.) | `src/cem_framework/` |
+| flat modules (`solver.py`, `estimators_1d.py`) | `src/` |
+| state, ledger, and cost modules | `src/core/` |
+| problem definitions and operators | `src/problems/` |
+| learners, candidate pools, and serialization | `src/enrichment/` |
+| scorers and acceptance policies | `src/strategies/` |
 | `tests/` | `tests/` |
 | `examples/` | `examples/` |
 | `docs/` | `docs/` |
 | `.github/workflows/`, `pyproject.toml`, `requirements.txt`, `README.md`, `LICENSE` | repository root, same relative paths |
 
-**Completed locally:** moved the tracked modules using Git, configured standard
-Setuptools `src` discovery, updated README commands and direct examples, and
-included `requirements.txt` in the Actions pip-cache key. Public API names and
-default behavior are unchanged.
+The user selected direct imports from these responsibility packages/modules,
+with no umbrella namespace. The short names are generic and can collide with
+unrelated imports; README and API docs state this risk.
 
 ## D. Build hygiene and preservation
 
@@ -54,14 +57,37 @@ default behavior are unchanged.
 - Keep workspace temporary PDF/PNG/LaTeX outputs and reviewer assets outside
   the new repository; do not perform broad workspace cleanup.
 
-## E. Relocated-repository validation and release
+## E. Relocated-repository validation and release (before responsibility regrouping)
 
-- **Local validation passed** on the TensorFlow Conda Python 3.11.13:
-  editable install resolves `cem_framework` from `CEM-Framework/src`; compileall
-  passed; unittest passed 62/62; all three examples passed; wheel built and
-  contains `cem_framework/estimators_1d.py`; `git diff --check` passed.
-- Wheel: `cem_framework-0.1.0-py3-none-any.whl`, SHA-256
+- Historical pre-regrouping validation passed on the TensorFlow Conda Python
+  3.11.13: editable install, compileall, 62/62 tests, three examples, wheel
+  build/content check, and `git diff --check`.
+- Historical distribution artifact: `cem_framework-0.1.0-py3-none-any.whl`, SHA-256
   `91873d2f323cc554810844dfd469fd4ec0340a093be439385e094fc75331bc29`.
+- These results validate the previous package layout only; they do not describe
+  the current direct top-level responsibility packages or their wheel contents.
 - Migration commit `3d126a2a7bf6368d6694d2c36e774292c78a4ed6` was pushed to
   `main`. Actions run `42992713311` completed successfully for that exact SHA;
   Ubuntu/Windows × Python 3.10/3.11/3.12 are all green.
+
+## F. Responsibility-package regrouping (current architecture-only slice)
+
+- Reorganized the pending worktree to the user-selected direct layout:
+  `src/core/`, `src/problems/`, `src/enrichment/`, `src/strategies/`, plus
+  `src/solver.py` and `src/estimators_1d.py`. No umbrella package is retained.
+- Subpackages provide narrow `__init__.py` exports; the public examples import
+  from the selected top-level modules/packages. `pyproject.toml` auto-discovers
+  packages under `src/` and explicitly lists `solver` and `estimators_1d` as
+  root modules.
+- TensorFlow Conda Python 3.11.13 editable install resolves the four packages
+  and two modules from the expected `src/` paths. `compileall` passed;
+  unittest passed 66/66 (including four architecture tests); all three examples
+  passed; `git diff --check` passed.
+- Wheel content check found all 16 expected Python module paths, no duplicate
+  archive paths, and no umbrella package. Wheel artifact
+  `cem_framework-0.1.0-py3-none-any.whl` SHA-256:
+  `c2bbad5bbf114d66e122dbc0b311beaaceec3f0f9e5940983c6eef2ad9c2b55a`.
+- This is architecture/import organization only. It is not a P1 certificate,
+  scientific validation, PDE experiment, or manuscript evidence.
+- Local validation and wheel verification passed. Independent review,
+  architecture commit, push, and exact-SHA six-matrix CI remain pending.

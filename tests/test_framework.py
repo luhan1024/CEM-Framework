@@ -1,6 +1,10 @@
 import unittest
 import numpy as np
-from cem_framework import *
+from core import *
+from enrichment import *
+from problems import *
+from solver import *
+from strategies import *
 
 class FrameworkTests(unittest.TestCase):
     def problem(self): return LinearPDEProblem(np.eye(3), np.array([1.,0.,0.]))

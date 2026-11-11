@@ -4,12 +4,30 @@ This guide describes only the APIs implemented in this package. It is a small
 NumPy-first correction-element scaffold, not a production PDE package and it
 makes no convergence, accuracy, or performance guarantee.
 
+## Source and import organization
+
+The `src/` directory is the installation and import-isolation boundary. Its
+responsibility packages are `core` (state and audit), `problems` (operators
+and discrete problem definitions), `enrichment` (learners, candidate pools,
+and serialization), and `strategies` (scoring and acceptance policies).
+`solver.py` coordinates the iterative lifecycle, while `estimators_1d.py`
+contains the narrowly scoped 1D adapter. Import from the corresponding package
+or module, such as `from solver import CEMSolver` or
+`from enrichment import Candidate`.
+
+These short top-level package names are generic and can conflict with modules
+from other projects on a shared import path. Use a dedicated environment or
+isolate this project's `src/` directory.
+
 ## Minimal linear composition
 
 ```python
 import numpy as np
-from cem_framework import (CallableOperator, LinearPDEProblem, SolverState,
-    AnalyticLearner, LinearCandidateScorer, MeritDecreasePolicy, CEMSolver)
+from core import SolverState
+from enrichment import AnalyticLearner
+from problems import CallableOperator, LinearPDEProblem
+from solver import CEMSolver
+from strategies import LinearCandidateScorer, MeritDecreasePolicy
 
 operator = CallableOperator((2, 2), lambda x: np.array([x[0] + 2*x[1], 3*x[0] - x[1]]))
 problem = LinearPDEProblem(operator, np.array([1., 0.]))
@@ -99,8 +117,11 @@ are not called during that `step()`.
 
 ```python
 import numpy as np
-from cem_framework import (Candidate, CallableOperator, LinearPDEProblem,
-    SolverState, LinearCandidateScorer, MeritDecreasePolicy, CEMSolver)
+from core import SolverState
+from enrichment import Candidate
+from problems import CallableOperator, LinearPDEProblem
+from solver import CEMSolver
+from strategies import LinearCandidateScorer, MeritDecreasePolicy
 
 class ResidualDirectionLearner:
     family = "custom-residual"

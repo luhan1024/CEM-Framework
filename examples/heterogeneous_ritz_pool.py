@@ -18,17 +18,18 @@ SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from cem_framework import (  # noqa: E402
+from core import SolverState, WorkLedger  # noqa: E402
+from enrichment import (
     AnalyticLearner,
     BestPredictedGainSelector,
     CandidatePool,
-    CEMSolver,
-    DiscreteRitzProblem,
-    FullyCorrectivePolicy,
     LocalBasisLearner,
+)
+from problems import DiscreteRitzProblem  # noqa: E402
+from solver import CEMSolver  # noqa: E402
+from strategies import (
+    FullyCorrectivePolicy,
     RitzCandidateScorer,
-    SolverState,
-    WorkLedger,
 )
 
 

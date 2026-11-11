@@ -1,11 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
-from .state import SolverState, StateTransaction
-from .ledger import CorrectionLedger, CorrectionRecord, PoolAuditRecord
-from .problem import LinearPDEProblem, DiscreteRitzProblem, MatrixFreeRitzProblem
-from .pool import CandidatePool, PoolCandidateResult, candidate_hash, safe_gain, freeze_metadata
-from .cost import WorkLedger
+from core.state import SolverState, StateTransaction
+from core.ledger import CorrectionLedger, CorrectionRecord, PoolAuditRecord
+from problems.problem import LinearPDEProblem, DiscreteRitzProblem, MatrixFreeRitzProblem
+from enrichment.pool import CandidatePool, PoolCandidateResult, candidate_hash, safe_gain, freeze_metadata
+from core.cost import WorkLedger
 
 @dataclass
 class CEMSolver:

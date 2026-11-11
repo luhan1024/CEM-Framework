@@ -1,4 +1,4 @@
-# `cem_framework`
+# CEM Framework
 
 This is an isolated, NumPy-first composable API for correction-element
 solvers. It is an engineering scaffold, not a claim of a new algorithm or
@@ -62,8 +62,11 @@ For example:
 
 ```python
 import numpy as np
-from cem_framework import (CallableOperator, LinearPDEProblem, SolverState,
-    AnalyticLearner, LinearCandidateScorer, MeritDecreasePolicy, CEMSolver)
+from core import SolverState
+from enrichment import AnalyticLearner
+from problems import CallableOperator, LinearPDEProblem
+from solver import CEMSolver
+from strategies import LinearCandidateScorer, MeritDecreasePolicy
 
 op = CallableOperator((2, 2), lambda x: np.array([x[0] + 2*x[1], 3*x[0] - x[1]]))
 problem = LinearPDEProblem(op, np.array([1., 0.]))
@@ -89,7 +92,17 @@ NumPy is the only core dependency. There are currently no built-in SciPy or
 PyTorch adapters; users may use those libraries inside their own operator,
 learner, or scorer components. Install locally with
 `python -m pip install -e . -r requirements.txt`. Python 3.10+ is supported;
-the package uses a standard `src/cem_framework` layout.
+`src/` is the installation and import isolation boundary. Inside `src/`,
+`core`, `problems`, `enrichment`, and `strategies` are the responsibility
+groups; `solver.py` and the narrow `estimators_1d.py` adapter sit at the source
+root. Imports use those entry points directly, for example
+`from solver import CEMSolver`, `from problems import DiscreteRitzProblem`,
+and `from enrichment import Candidate`.
+
+These top-level names (`core`, `problems`, `solver`, and others) are generic
+and may collide with unrelated installed modules if multiple projects share
+one import path. Use a dedicated virtual environment or isolate the intended
+`src/` directory when importing the framework.
 
 The current public package deliberately does not expose a BlockPolicy: block
 selection/refit semantics require a separate, explicit block candidate

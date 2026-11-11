@@ -35,7 +35,7 @@ class RitzCandidateScorer:
     """Stagewise scorer for the finite-dimensional discrete Ritz objective."""
     def __init__(self, q_epsilon=1e-14, identity_tolerance=1e-10): self.q_epsilon=float(q_epsilon); self.identity_tolerance=float(identity_tolerance)
     def score(self, problem, state, candidate):
-        from .problem import DiscreteRitzProblem, MatrixFreeRitzProblem
+        from problems.problem import DiscreteRitzProblem, MatrixFreeRitzProblem
         if not isinstance(problem, (DiscreteRitzProblem, MatrixFreeRitzProblem)): raise TypeError("RitzCandidateScorer requires a Ritz problem")
         if candidate.correction.shape != state.values.shape: return Score(False, False, 0, 0, 0, 0, np.nan, np.nan, "shape_mismatch")
         image=problem.apply_operator(candidate.correction)

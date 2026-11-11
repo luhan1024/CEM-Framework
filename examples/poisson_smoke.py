@@ -6,7 +6,11 @@ import numpy as np
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
-from cem_framework import CEMSolver, SolverState, LinearPDEProblem, AnalyticLearner, LocalBasisLearner, LinearCandidateScorer, MeritDecreasePolicy
+from core import SolverState
+from enrichment import AnalyticLearner, LocalBasisLearner
+from problems import LinearPDEProblem
+from solver import CEMSolver
+from strategies import LinearCandidateScorer, MeritDecreasePolicy
 
 def main():
     # -u''=1 on (0,1), u(0)=u(1)=0, three interior nodes, h=1/4.
