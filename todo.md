@@ -119,6 +119,8 @@ unrelated imports; README and API docs state this risk.
 - Evidence boundary: this is software verification for a fixed finite
   dyadic SPD quadratic and caller-declared enclosures. It does not verify
   enclosure provenance, continuous PDE integrals/errors, greedy selection,
-  convergence, machine-certified proof status, or novelty. No manuscript, Case data, figures, or
-  `requirements.txt` were changed. Independent review and exact-SHA CI remain
-  release gates.
+  convergence, machine-certified proof status, or novelty. No manuscript,
+  Case data, figures, or `requirements.txt` were changed. Exact-SHA CI run
+  `43000717388` passed all six Ubuntu/Windows × Python 3.10/3.11/3.12 jobs for
+  implementation commit `54f2e023a9150f7ecb8b3ae6558cd0c647eba39a`;
+  independent scientific review remains pending.
