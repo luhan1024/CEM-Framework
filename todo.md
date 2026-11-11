@@ -93,3 +93,32 @@ unrelated imports; README and API docs state this risk.
   `9e5b80a20f2694b209e434e2575f2fcd394ef734` was pushed; Actions run
   `42996391679` succeeded for that exact SHA across Ubuntu/Windows × Python
   3.10/3.11/3.12. This remains architecture-only software evidence.
+
+## G. Fixed-discrete Ritz P1 verifier (narrow prototype; review pending)
+
+- Added an independent verifier under `src/problems/`; it consumes a
+  `DiscreteRitzProblem` plus finite float32/float64 state, direction, and
+  enclosure values, interpreted as exact dyadic rationals. It exactly checks
+  symmetry, SPD, directional curvature, declared `c/q` enclosures, and forms
+  the rational step/lower bound/trial. It does not call or modify `CEMSolver`.
+- The public entry point consumes `DiscreteRitzProblem` and reads its actual
+  `feasible` property. The first version is restricted to
+  `problem.feasible is None`; callbacks are rejected as unsupported.
+  `feasibility_basis` records `unconstrained_domain` only in that case. Exact
+  factor work is capped at dimension 32, 6,000 LDL summation products, and 16,384 bits per
+  Fraction numerator/denominator. Oversized inputs fail closed as
+  `unsupported_resource_limit` before input hashing/factorization.
+- Added an input-bound JSON record plus `verify_discrete_ritz_certificate`;
+  serialized `status` is not proof. Verification recomputes fields/hash and
+  independently evaluates the exact objective difference on the exact trial.
+- TensorFlow Conda Python 3.11.13: 76/76 unittests passed; `compileall`, all
+  three examples, wheel build/content/export check, and `git diff --check`
+  passed. The Conda launcher itself failed in this shell, so the environment's
+  `python.exe` was invoked directly. Wheel SHA-256:
+  `f28759c0a635bf73a0009e728c329fe23d4f62fe8610a447ac6210d85111c8f4`.
+- Evidence boundary: this is software verification for a fixed finite
+  dyadic SPD quadratic and caller-declared enclosures. It does not verify
+  enclosure provenance, continuous PDE integrals/errors, greedy selection,
+  convergence, machine-certified proof status, or novelty. No manuscript, Case data, figures, or
+  `requirements.txt` were changed. Independent review and exact-SHA CI remain
+  release gates.

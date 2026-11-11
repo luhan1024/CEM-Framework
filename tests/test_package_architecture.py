@@ -23,7 +23,8 @@ PACKAGE_EXPORTS = {
     "problems": (
         "Operator", "TransposeOperator", "NumpyMatrixOperator", "CallableOperator",
         "LinearPDEProblem", "DiscreteRitzProblem", "MatrixFreeRitzProblem",
-        "NonlinearPDEProblem",
+        "NonlinearPDEProblem", "DiscreteRitzStepCertificate",
+        "certify_discrete_ritz_step", "verify_discrete_ritz_certificate",
     ),
     "enrichment": (
         "Candidate", "WeakLearner", "AnalyticLearner", "LocalBasisLearner",
@@ -53,6 +54,9 @@ PUBLIC_OWNERS = {
     "DiscreteRitzProblem": "problems.problem",
     "MatrixFreeRitzProblem": "problems.problem",
     "NonlinearPDEProblem": "problems.problem",
+    "DiscreteRitzStepCertificate": "problems.ritz_certificate",
+    "certify_discrete_ritz_step": "problems.ritz_certificate",
+    "verify_discrete_ritz_certificate": "problems.ritz_certificate",
     "Candidate": "enrichment.learner",
     "WeakLearner": "enrichment.learner",
     "AnalyticLearner": "enrichment.learner",

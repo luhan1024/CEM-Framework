@@ -7,6 +7,11 @@ from .problem import (
     MatrixFreeRitzProblem,
     NonlinearPDEProblem,
 )
+from .ritz_certificate import (
+    DiscreteRitzStepCertificate,
+    certify_discrete_ritz_step,
+    verify_discrete_ritz_certificate,
+)
 
 __all__ = [
     "Operator",
@@ -17,4 +22,7 @@ __all__ = [
     "DiscreteRitzProblem",
     "MatrixFreeRitzProblem",
     "NonlinearPDEProblem",
+    "DiscreteRitzStepCertificate",
+    "certify_discrete_ritz_step",
+    "verify_discrete_ritz_certificate",
 ]
