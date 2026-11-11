@@ -62,5 +62,6 @@ default behavior are unchanged.
   contains `cem_framework/estimators_1d.py`; `git diff --check` passed.
 - Wheel: `cem_framework-0.1.0-py3-none-any.whl`, SHA-256
   `91873d2f323cc554810844dfd469fd4ec0340a093be439385e094fc75331bc29`.
-- Separate migration commit, push, and six-matrix Actions verification remain
-  pending.
+- Migration commit `3d126a2a7bf6368d6694d2c36e774292c78a4ed6` was pushed to
+  `main`. Actions run `42992713311` completed successfully for that exact SHA;
+  Ubuntu/Windows × Python 3.10/3.11/3.12 are all green.
