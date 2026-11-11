@@ -71,6 +71,39 @@ not reinterpret the strong-residual scorer, densify arbitrary operators, or
 claim a continuous weak-form/PDE energy certificate; tests are algebraic and
 software-level only.
 
+### Bounded polynomial Poisson enclosure (1D)
+
+`build_polynomial_poisson_1d_enclosure` is a separate bounded family path for
+weak `-u''=f` on `(0,1)` with homogeneous Dirichlet data, exact rational
+polynomial forcing/basis coefficients, and finite float32/float64 state and
+direction coefficients. Coefficients are listed in ascending powers. The
+builder computes the rational weak-form stiffness/load, rounds those entries
+deterministically to binary64, constructs the matching `DiscreteRitzProblem`,
+and returns a full replay record with the enclosure and embedded discrete
+certificate. Float32 vectors are promoted exactly to binary64; all other
+vector dtypes are rejected.
+
+```python
+from fractions import Fraction
+import numpy as np
+from problems import (
+    build_polynomial_poisson_1d_enclosure,
+    verify_polynomial_poisson_1d_enclosure,
+)
+
+psi = (Fraction(0), Fraction(1), Fraction(-1))  # x(1-x)
+problem, record = build_polynomial_poisson_1d_enclosure(
+    (Fraction(1),), (psi,), np.array([0.0]), np.array([1.0]))
+assert verify_polynomial_poisson_1d_enclosure(record)
+```
+
+The replay checks both the continuous polynomial Ritz functional and the
+rounded discrete quadratic for that exact canonical input. Its scope is
+limited by degree, dimension, coefficient-size, operation, and record-size
+caps. It is not a generic quadrature engine, an Ern--Vohralík equilibrated-flux
+estimator, or a weak-greedy convergence result; it does not close P1 for other
+families or general enclosure provenance.
+
 `MatrixFreeRitzProblem` accepts a square `Operator`/`CallableOperator` and
 requires the explicit string `spd_assumption="caller_declared"`; it never
 materializes `K`, and that declaration is not a global SPD proof. Fully-

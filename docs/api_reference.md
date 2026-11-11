@@ -114,6 +114,26 @@ symmetry/SPD evidence themselves. Matrix-free FC applies the operator to active 
 the Gram matrix and fails closed on nonfinite, nonsymmetric, or ill-conditioned
 systems.
 
+## Exact dyadic 1D P1 Poisson direction oracle
+
+`certify_p1_poisson_step(data, state_values, direction_values)` and
+`verify_p1_poisson_step_certificate(record, data, state_values,
+direction_values)` are a separate, pure exact-arithmetic path for the narrow
+`P1Poisson1DData` model: `-u''=f` on `(0,1)`, zero Dirichlet endpoints,
+cellwise-constant source, and conforming piecewise-linear state/direction on
+the same mesh. Finite native binary64 inputs are interpreted as their exact
+dyadic values. The record contains exact `c`, `q`, signed `alpha=c/q`,
+`c²/(2q)`, an input hash, and the checked rational-operation count. Verification
+recomputes the record and direct energy difference; it does not update
+`CEMSolver` or accept caller-supplied enclosure radii.
+
+This is an exact directional energy identity for the encoded 1D model, not a
+general PDE estimator, solution-error certificate, training/quadrature
+certificate, convergence result, or candidate-selection guarantee. Invalid
+inputs and resource-limit cases fail closed. For the existing float64
+equilibrated-flux error estimate see `estimators_1d`; do not treat its
+`numerical_bound` status as an outward-rounded interval proof.
+
 ## Finite-pool selection (opt-in)
 
 `CandidatePool(candidates, generation_metadata=None, proposal_failures=(),

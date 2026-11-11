@@ -1,4 +1,5 @@
-# Runtime dependency pins for the supported Python 3.10–3.12 CI matrix.
-# NumPy 2.4.x requires Python >=3.11; use the final compatible 2.2.x pin on 3.10.
+# Reproducible runtime/build environment for the supported Python 3.10–3.12 range.
+# NumPy 2.4.x requires Python >=3.11; Python 3.10 uses the compatible 2.2.x line.
 numpy==2.2.6; python_version < "3.11"
 numpy==2.4.6; python_version >= "3.11"
+setuptools==78.1.1

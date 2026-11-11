@@ -12,6 +12,17 @@ from .ritz_certificate import (
     certify_discrete_ritz_step,
     verify_discrete_ritz_certificate,
 )
+from .polynomial_poisson_1d import (
+    PolynomialPoisson1DError,
+    PolynomialPoissonEnclosure1D,
+    build_polynomial_poisson_1d_enclosure,
+    verify_polynomial_poisson_1d_enclosure,
+)
+from .p1_poisson_1d import (
+    P1PoissonStepCertificate,
+    certify_p1_poisson_step,
+    verify_p1_poisson_step_certificate,
+)
 
 __all__ = [
     "Operator",
@@ -25,4 +36,11 @@ __all__ = [
     "DiscreteRitzStepCertificate",
     "certify_discrete_ritz_step",
     "verify_discrete_ritz_certificate",
+    "PolynomialPoisson1DError",
+    "PolynomialPoissonEnclosure1D",
+    "build_polynomial_poisson_1d_enclosure",
+    "verify_polynomial_poisson_1d_enclosure",
+    "P1PoissonStepCertificate",
+    "certify_p1_poisson_step",
+    "verify_p1_poisson_step_certificate",
 ]

@@ -147,3 +147,99 @@ unrelated imports; README and API docs state this risk.
   three deterministic examples passed. This closes only the reviewed test
   fixture. Reliable, reusable provenance for `delta/epsilon` on general
   candidates and quadrature rules remains **OPEN**; P1 is not closed.
+
+## I. Polynomial Poisson record parser depth and Unicode boundary
+
+- Added a bounded JSON container-depth scan before decoding the polynomial
+  enclosure record (maximum nesting depth 64), with explicit `RecursionError`
+  conversion as a decoder/replay backstop. `from_json` reports deeply nested
+  input and lone-surrogate text as defined `ValueError`s; the verifier rejects
+  a directly constructed deeply nested record with `False`.
+- Added regression coverage using 1,500 nested arrays through both public
+  parser/verifier paths, lone-surrogate input, and directly constructed
+  records with `None`/integer payloads. Existing duplicate-key, noncanonical
+  JSON, and record-size rejection tests remain in place.
+- TensorFlow Conda Python 3.11.13: focused polynomial-family tests passed
+  10/10; full unittest discovery passed 87/87; `compileall`, all three
+  deterministic examples, and `git diff --check` passed for this worktree.
+- Scope remains the bounded analytic polynomial Poisson family only. This
+  parser hardening does not establish general enclosure provenance or close
+  P1/Stage 2; those remain **OPEN**. No manuscript, figures, or data were
+  changed. This reviewer-requested worktree update was not committed or pushed.
+
+## J. Stage-2 literature-to-API gap audit
+
+- Added [`docs/stage2-literature-gap-audit.md`](docs/stage2-literature-gap-audit.md):
+  page-located matrix for all 17 PDFs (755 pages) and cross-check of all 4
+  text companions present (the request expected 3). It maps each source to K0/K1/P1/P2/P3/P4/L1,
+  states assumptions and the exact current API gap, and marks unresolved
+  theorem-transfer/metadata/novelty questions **OPEN**.
+- Reused and linked the existing R1/R2/R3 audits for focused derivations;
+  this report avoids restating their long proofs. It identifies the bounded
+  exact 1D P1 Poisson cell-integral certificate as one candidate next gate,
+  with explicit acceptance evidence, stop conditions, and nonclaims. It is a
+  proposal only; no code, manuscript, data, or experiments were changed/run.
+- TensorFlow Conda Python 3.11.13 built a local wheel from this worktree, and
+  an isolated target install imported `core`, `problems`, `enrichment`, and
+  `strategies` successfully. Initial pip temp-path denial was resolved by
+  placing TMP/TEMP under the permitted workspace; no external dependencies
+  were fetched (`--no-deps`, `--no-build-isolation`, `PIP_NO_INDEX=1`).
+- **Stage 2/P1 remains OPEN.** Next unique deliverable, if authorized: design
+  independent review of the exact 1D piecewise-linear Poisson certificate
+  contract in `docs/p1-piecewise-linear-poisson-certificate-contract.md`.
+  Do not implement until reviewed; reject or narrow it if arithmetic, replay,
+  or resource limits cannot be proved. Do not treat finite-pool ratios as
+  continuous-dictionary guarantees or the historical test count as scientific
+  proof. This records the state at the end of the audit step; section K records
+  the subsequent review and implementation gate.
+
+## K. Exact piecewise-linear 1D Poisson certificate contract (design gate)
+
+- Added `docs/p1-piecewise-linear-poisson-certificate-contract.md` as a
+  review-only specification: weak-form sign convention and energy identity,
+  exact binary64/dyadic input semantics, cellwise `c/q` formulas, signed/zero
+  cases, canonical input-bound record/replay, fail-closed statuses and
+  proposed resource caps, oracle tests, package integration points, and
+  nonclaims.
+- Difference audit: discrete Ritz verifies caller-declared enclosures for a
+  finite matrix but does not derive continuous source/mesh provenance; the
+  polynomial Poisson path covers global polynomial data, not general P1
+  knotwise functions; the float64 equilibrated-flux estimator shares the same
+  model class but returns a numerical error estimate and does not compute the
+  exact directional gain. The proposed feature is **GO only as a bounded exact
+  oracle/fixture, NO-GO as a claimed new general estimator or theorem**. If a
+  test-only oracle is sufficient, prefer it over a public API.
+- **Contract review approved for this narrow implementation.** Added pure
+  `certify_p1_poisson_step` / `verify_p1_poisson_step_certificate` in
+  `src/problems/p1_poisson_1d.py`, exported through `problems`. It snapshots
+  the bounded binary64 input arrays before value validation, hashing, and exact
+  integration; derives exact cellwise `c/q`, signed alpha and energy gain;
+  independently recomputes direct energy difference; binds/replays canonical
+  records; and fails closed on invalid or over-budget inputs. It does not
+  connect to the solver/pool. Resource accounting is exact for the current
+  path: `36*cells + 11` checked rational operations, with the live counter and
+  cap preflight both enforced (147,467 operations at the 4,096-cell cap).
+- Added independent Fraction/direct-energy oracle and edge tests, including
+  negative/zero `c`, zero direction, signed-zero endpoint semantics and raw-bit
+  hash retention, smallest subnormal and largest finite binary64 inputs,
+  parser/unhashable-status failures, tampering, snapshot non-mutation, and exact
+  max-cell operation count. The largest-finite case independently compares
+  `c`, `q`, signed `alpha`, exact gain, and direct energy decrease against the
+  test-only `Fraction` oracle; the negative-zero endpoint is legally replayed.
+  `P1Poisson1DData` subclasses and ndarray subclasses are rejected.
+  The API is documented in `docs/api_reference.md`; the mathematical and
+  novelty boundary remains in
+  `docs/p1-piecewise-linear-poisson-certificate-contract.md`.
+- Final-source validation after the largest-finite and signed-zero regressions
+  in TensorFlow Conda Python 3.11.13: full unittest discovery **103/103**; `compileall`
+  passed; all three existing
+  examples passed; clean wheel build/install plus imports from the installed
+  wheel passed for `core`, `problems`, `enrichment`, and `strategies`, including
+  the new P1 API. Wheel SHA-256:
+  `230d779e3385a5ccc94587527fa600b0b91017ca3acef41608011292978c31ba`.
+  `git diff --check` passed. No new PDE benchmark, manuscript, data, or figures
+  were changed/run.
+- This closes only the approved bounded **software oracle/API gate**. General
+  P1 enclosure provenance, PDE solution error, K1/P2/P3/P4, convergence,
+  comparative efficiency, and novelty remain **OPEN**. Solver integration is
+  explicitly deferred to a separate review.
