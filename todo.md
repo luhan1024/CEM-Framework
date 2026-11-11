@@ -89,5 +89,7 @@ unrelated imports; README and API docs state this risk.
   `c2bbad5bbf114d66e122dbc0b311beaaceec3f0f9e5940983c6eef2ad9c2b55a`.
 - This is architecture/import organization only. It is not a P1 certificate,
   scientific validation, PDE experiment, or manuscript evidence.
-- Local validation and wheel verification passed. Independent review,
-  architecture commit, push, and exact-SHA six-matrix CI remain pending.
+- Local validation and wheel verification passed. Architecture commit
+  `9e5b80a20f2694b209e434e2575f2fcd394ef734` was pushed; Actions run
+  `42996391679` succeeded for that exact SHA across Ubuntu/Windows × Python
+  3.10/3.11/3.12. This remains architecture-only software evidence.
