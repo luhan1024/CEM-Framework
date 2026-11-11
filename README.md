@@ -37,6 +37,14 @@ ledger event references. It deliberately uses one fixed grid only; it is not
 a continuous-PDE certificate, mesh-convergence or speed comparison, research
 benchmark, or novelty evidence.
 
+`P1Poisson1DData` and `EquilibratedFlux1DEstimator` provide a separate narrow
+verification adapter for zero-Dirichlet 1D Poisson with a continuous P1
+solution and piecewise-constant source. With the boundary-constrained
+equilibrated flux, exact arithmetic gives `eta_eq` equal to the exact
+H1-seminorm error in this special case. The float64 output is labeled
+`numerical_bound`, not machine-certified; it is neither a higher-dimensional
+estimator nor a CEM accuracy/efficiency claim. See `docs/user_guide.md`.
+
 Define a `LinearPDEProblem` with `(A, f, W)`, assemble any number of
 `WeakLearner` implementations, choose a scorer and `MeritDecreasePolicy`, and
 construct `CEMSolver`. `Candidate` separates learner-internal `parameters`

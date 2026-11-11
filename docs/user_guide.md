@@ -60,6 +60,34 @@ corrective mode applies the operator to each active correction column to form
 the Gram matrix and rejects nonfinite, nonsymmetric, or ill-conditioned
 systems without ridge or pseudoinverse.
 
+## Narrow 1D equilibrated-flux estimator
+
+`P1Poisson1DData` and `EquilibratedFlux1DEstimator` are an optional, isolated
+verification adapter for `-u''=f` on `(0,1)` with zero Dirichlet data, a
+continuous conforming P1 nodal solution, and a piecewise-constant source. The
+adapter uses the stated exact cell-integration formulas in float64 and returns
+an immutable `EstimatorRecord` with data/solution hashes, assumptions,
+integration rule, equilibrium defect and its acceptance tolerance, and status.
+By default the tolerance is a scale-aware, cell-count-dependent float64
+roundoff allowance based on a `gamma_n` operation-count model. It is only a
+numerical acceptance threshold, not a strict error bound; callers may provide
+an explicit relative threshold. A record with a defect above its threshold
+fails closed. Invalid solution inputs return `status="failed"`, a failure
+reason, and no `eta_eq`; invalid problem data are rejected at construction.
+
+In this one-dimensional special case, imposing both `sigma'=-f` and
+`integral(sigma)=u(1)-u(0)=0` selects the exact flux `sigma=u'`. Therefore
+`eta_eq=||sigma-u_h'||_L2` equals the exact H1-seminorm error in exact
+arithmetic. It is not a nontrivial efficiency improvement over the exact
+error, and this result does not extend here to higher dimensions or general
+discretizations. Prager--Synge still gives the reliability identity; its
+`||sigma-u'||` term is zero in this 1D case. The reported quantity is the
+Prager--Synge estimator value computed numerically in float64. The
+`numerical_bound` status does not mean machine-certified: the value is not an
+outward-rounded interval, and the roundoff acceptance tolerance is not a
+rigorous error bound. The adapter is not connected to solver policies or mesh
+marking.
+
 Custom policies may provide their own `decide(score) -> bool`, but their
 `mode` must be absent (defaulting to stagewise), `"stagewise"`, or
 `"fully_corrective"`; an unknown mode such as `"block"` fails fast and cannot
