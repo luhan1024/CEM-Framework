@@ -1,6 +1,6 @@
 """Correction candidates, finite pools, and their serialization."""
 
-from .learner import AnalyticLearner, Candidate, LocalBasisLearner, WeakLearner
+from .learner import AnalyticLearner, Candidate, LocalBasisLearner, ProposalFailure, WeakLearner
 from .pool import (
     BestPredictedGainSelector,
     CandidatePool,
@@ -12,6 +12,7 @@ from .serialization import candidate_from_json, candidate_to_json
 __all__ = [
     "Candidate",
     "WeakLearner",
+    "ProposalFailure",
     "AnalyticLearner",
     "LocalBasisLearner",
     "CandidatePool",

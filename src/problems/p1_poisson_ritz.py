@@ -5,13 +5,16 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from threading import Lock
 from types import MappingProxyType
 
 import numpy as np
 
 from estimators_1d import P1Poisson1DData
-from .p1_poisson_1d import MAX_P1_CELLS
+from .p1_poisson_1d import (MAX_P1_CELLS, P1PoissonStepCertificate,
+                           verify_p1_poisson_step_certificate)
+from .problem import RitzEnergyProblem
 
 
 _SCHEMA = "cem.p1_poisson_1d_ritz_problem.v1"
@@ -66,7 +69,7 @@ def _p1_data_sha256(nodes: np.ndarray, source: np.ndarray,
 
 
 @dataclass(frozen=True, init=False)
-class P1Poisson1DRitzProblem:
+class P1Poisson1DRitzProblem(RitzEnergyProblem):
     """Bounded matrix-free P1 Ritz problem, bound to one immutable data snapshot.
 
     ``data`` is retained only as an identity witness. Every operator and
@@ -92,6 +95,7 @@ class P1Poisson1DRitzProblem:
     build_audit: MappingProxyType
     _build_audit_claimed: bool
     _build_audit_lock: Lock
+    work_ledger: object | None
     objective_geometry: str = "ritz_energy"
 
     def __init__(self, data: P1Poisson1DData) -> None:
@@ -206,6 +210,7 @@ class P1Poisson1DRitzProblem:
             ("problem_fingerprint", fingerprint),
             ("build_audit", MappingProxyType(dict(build_audit))),
             ("_build_audit_claimed", False), ("_build_audit_lock", Lock()),
+            ("work_ledger", None),
             ("objective_geometry", "ritz_energy"),
         ):
             object.__setattr__(self, name, value)
@@ -223,6 +228,159 @@ class P1Poisson1DRitzProblem:
         if self.number_of_cells <= 1:
             return _immutable_f64(np.zeros(0, dtype=np.float64))
         return _immutable_f64(self.load_full[1:-1])
+
+    def attach_work_ledger(self, ledger: object) -> None:
+        object.__setattr__(self, "work_ledger", ledger)
+
+    def _work(self, quantity: str, phase: str, status: str = "completed") -> None:
+        if self.work_ledger is not None:
+            self.work_ledger.record_call(phase, quantity, status=status)
+
+    def apply(self, values: object) -> np.ndarray:
+        return self.apply_operator(values)
+
+    def admissible(self, values: object) -> bool:
+        vector = np.asarray(values)
+        return (vector.dtype == np.dtype(np.float64)
+                and vector.ndim == 1
+                and vector.shape == (self.dimension,)
+                and bool(np.all(np.isfinite(vector))))
+
+    def validate_state(self, state: object) -> None:
+        self.assert_integrity()
+        values = getattr(state, "values", None)
+        if not self.admissible(values):
+            raise ValueError("state_shape_or_dtype_mismatch")
+        active_ids = getattr(state, "active_element_ids", None)
+        if type(active_ids) is not tuple or any(not isinstance(item, str) for item in active_ids):
+            raise ValueError("state_active_ids_malformed")
+
+    def _validate_p1_binding_fields(
+            self, *, element_id: object, correction: object | None,
+            candidate_fingerprint: object, support: object, parameters: object,
+            problem_fingerprint: object, certificate_status: object,
+            certificate_json: object, certificate_sha256: object,
+            state: object) -> bool:
+        self.assert_integrity()
+        if not isinstance(support, Mapping) or not isinstance(parameters, Mapping):
+            return False
+        node = support.get("node_index")
+        if type(node) is not int or not 1 <= node < self.number_of_cells:
+            return False
+        cells = support.get("cell_indices")
+        if not isinstance(cells, (tuple, list)) or tuple(cells) != (node - 1, node):
+            return False
+        if (parameters.get("basis") != "interior_p1_hat"
+                or type(parameters.get("node_index")) is not int
+                or parameters.get("node_index") != node):
+            return False
+        expected_id = (f"p1hat-v1:{self.problem_fingerprint}:"
+                       f"{self.mesh_sha256}:node:{node}")
+        if element_id != expected_id or problem_fingerprint != self.problem_fingerprint:
+            return False
+        if (not isinstance(certificate_json, str)
+                or not isinstance(certificate_sha256, str)
+                or hashlib.sha256(certificate_json.encode("utf-8")).hexdigest()
+                != certificate_sha256):
+            return False
+        certificate = P1PoissonStepCertificate.from_json(certificate_json)
+        if (certificate_status != "verified_positive_gain"
+                or certificate.status != certificate_status):
+            return False
+        expected = np.zeros(self.dimension, dtype=np.float64)
+        expected[node - 1] = 1.0
+        expected_bytes = expected.tobytes(order="C")
+        expected_fingerprint = hashlib.sha256(expected_bytes).hexdigest()
+        if candidate_fingerprint != expected_fingerprint:
+            return False
+        if correction is not None:
+            if (type(correction) is not np.ndarray
+                    or correction.dtype != np.dtype(np.float64)
+                    or correction.ndim != 1
+                    or correction.shape != (self.dimension,)
+                    or correction.tobytes(order="C") != expected_bytes):
+                return False
+
+        values = getattr(state, "values", None)
+        if (type(values) is not np.ndarray
+                or values.dtype != np.dtype(np.float64)
+                or values.shape != (self.dimension,)
+                or not np.all(np.isfinite(values))):
+            return False
+        full_state = np.zeros(self.number_of_cells + 1, dtype=np.float64)
+        full_state[1:-1] = values
+        direction = np.zeros(self.number_of_cells + 1, dtype=np.float64)
+        direction[node] = 1.0
+        return verify_p1_poisson_step_certificate(
+            certificate, self.certificate_data(), full_state, direction)
+
+    def validate_p1_candidate_binding(self, candidate: object,
+                                      state: object) -> bool:
+        """Fail closed unless candidate fields match its replayed P1 certificate."""
+        provenance = getattr(candidate, "provenance", None)
+        if not isinstance(provenance, Mapping):
+            return False
+        if (provenance.get("learner") != "P1PoissonHatWeakLearner"
+                or getattr(candidate, "family", None) != "p1-poisson-hat"
+                or provenance.get("problem_fingerprint") != self.problem_fingerprint
+                or provenance.get("mesh_sha256") != self.mesh_sha256
+                or provenance.get("data_fingerprint") != self.data_sha256
+                or not isinstance(provenance.get("work_audit"), Mapping)):
+            return False
+        correction = getattr(candidate, "correction", None)
+        if (type(correction) is not np.ndarray
+                or correction.ndim != 1
+                or correction.dtype != np.dtype(np.float64)
+                or correction.shape != (self.dimension,)
+                or not np.all(np.isfinite(correction))):
+            return False
+        fingerprint = hashlib.sha256(correction.tobytes(order="C")).hexdigest()
+        return self._validate_p1_binding_fields(
+            element_id=getattr(candidate, "element_id", None),
+            correction=correction,
+            candidate_fingerprint=fingerprint,
+            support=getattr(candidate, "support", None),
+            parameters=getattr(candidate, "parameters", None),
+            problem_fingerprint=provenance.get("problem_fingerprint"),
+            certificate_status=provenance.get("certificate_status"),
+            certificate_json=provenance.get("certificate_record_json"),
+            certificate_sha256=provenance.get("certificate_sha256"),
+            state=state)
+
+    def validate_p1_audit_binding(self, envelope: Mapping[str, object],
+                                  state: object) -> bool:
+        """Bind a persisted candidate envelope to this problem and state."""
+        if (not isinstance(envelope, Mapping)
+                or envelope.get("schema") != "cem.p1_proposal_audit.v1"
+                or envelope.get("outcome") != "verified_candidate"
+                or not isinstance(envelope.get("work_audit"), Mapping)):
+            return False
+        return self._validate_p1_binding_fields(
+            element_id=envelope.get("element_id"), correction=None,
+            candidate_fingerprint=envelope.get("candidate_fingerprint"),
+            support=envelope.get("support"),
+            parameters=envelope.get("parameters"),
+            problem_fingerprint=envelope.get("problem_fingerprint"),
+            certificate_status=envelope.get("certificate_status"),
+            certificate_json=envelope.get("certificate_record_json"),
+            certificate_sha256=envelope.get("certificate_sha256"),
+            state=state)
+
+    def objective(self, state: object) -> float:
+        try:
+            self.assert_integrity()
+            values = getattr(state, "values", None)
+            if not self.admissible(values):
+                raise ValueError("state_shape_or_dtype_mismatch")
+            applied = self.apply_operator(values)
+            result = 0.5 * float(values @ applied) - float(self.source @ values)
+            if not math.isfinite(result):
+                raise ValueError("nonfinite_ritz_objective")
+        except Exception:
+            self._work("objective_eval_calls", "p1_ritz_objective", "failed")
+            raise
+        self._work("objective_eval_calls", "p1_ritz_objective")
+        return result
 
     def assert_integrity(self) -> None:
         """Fail if the caller-owned data or any derived adapter array changed."""
@@ -246,22 +404,28 @@ class P1Poisson1DRitzProblem:
             return dict(self.build_audit)
 
     def apply_operator(self, values: object) -> np.ndarray:
-        vector = np.asarray(values)
-        if (vector.dtype != np.dtype(np.float64) or vector.ndim != 1
-                or vector.shape != (self.dimension,)
-                or not np.all(np.isfinite(vector))):
-            raise ValueError("state_must_be_a_finite_binary64_interior_vector")
-        result = np.empty(self.dimension, dtype=np.float64)
-        cells = self.number_of_cells
-        for row, node in enumerate(range(1, cells)):
-            total = float(self.diagonal[node] * vector[row])
-            if node > 1:
-                total = float(total + self.upper[node - 1] * vector[row - 1])
-            if node < cells - 1:
-                total = float(total + self.lower[node] * vector[row + 1])
-            if not math.isfinite(total):
-                raise ValueError("nonfinite_operator_action")
-            result[row] = total
+        try:
+            self.assert_integrity()
+            vector = np.asarray(values)
+            if (vector.dtype != np.dtype(np.float64) or vector.ndim != 1
+                    or vector.shape != (self.dimension,)
+                    or not np.all(np.isfinite(vector))):
+                raise ValueError("state_must_be_a_finite_binary64_interior_vector")
+            result = np.empty(self.dimension, dtype=np.float64)
+            cells = self.number_of_cells
+            for row, node in enumerate(range(1, cells)):
+                total = float(self.diagonal[node] * vector[row])
+                if node > 1:
+                    total = float(total + self.upper[node - 1] * vector[row - 1])
+                if node < cells - 1:
+                    total = float(total + self.lower[node] * vector[row + 1])
+                if not math.isfinite(total):
+                    raise ValueError("nonfinite_operator_action")
+                result[row] = total
+        except Exception:
+            self._work("operator_apply_calls", "p1_ritz_operator_apply", "failed")
+            raise
+        self._work("operator_apply_calls", "p1_ritz_operator_apply")
         return result
 
     def residual(self, state: object) -> np.ndarray:

@@ -77,6 +77,24 @@ class WeakLearner(Protocol):
     family: str
     def propose(self, problem, state, residual, budget) -> Candidate: ...
 
+
+class ProposalFailure(RuntimeError):
+    """Structured no-candidate or failed-proposal outcome for solver ledgers."""
+
+    def __init__(self, status: str, reason_code: str,
+                 work_audit: Mapping[str, Any]) -> None:
+        if not isinstance(status, str) or not status:
+            raise ValueError("proposal failure status must be nonempty text")
+        if not isinstance(reason_code, str) or not reason_code:
+            raise ValueError("proposal failure reason_code must be nonempty text")
+        frozen_audit = _freeze(work_audit, "work_audit")
+        if not isinstance(frozen_audit, ABCMapping):
+            raise TypeError("proposal failure work_audit must be a mapping")
+        self.status = status
+        self.reason_code = reason_code
+        self.work_audit = frozen_audit
+        super().__init__(f"{status}:{reason_code}")
+
 @dataclass
 class AnalyticLearner:
     family: str

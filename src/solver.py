@@ -1,11 +1,94 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from collections.abc import Mapping
+import hashlib
+import json
 import numpy as np
-from core.state import SolverState, StateTransaction
-from core.ledger import CorrectionLedger, CorrectionRecord, PoolAuditRecord
-from problems.problem import LinearPDEProblem, DiscreteRitzProblem, MatrixFreeRitzProblem
+from core.state import (SolverState, StateSnapshot, StateTransaction,
+                        STATE_HASH_ALGORITHM_VERSION, immutable_snapshot,
+                        snapshots_equal)
+from core.ledger import (CorrectionLedger, CorrectionRecord, PoolAuditRecord,
+                         MAX_PROPOSAL_CERTIFICATE_BYTES, MAX_PROPOSAL_AUDIT_BYTES,
+                         MAX_TERMINAL_AUDIT_BYTES, MAX_ATTEMPT_WORK_EVENT_IDS,
+                         MAX_WORK_EVENT_ID_BYTES, ProposalAuditTooLarge,
+                         canonical_json_bytes, correction_record_dict,
+                         verify_proposal_audit)
+from problems.problem import LinearPDEProblem, RitzEnergyProblem
 from enrichment.pool import CandidatePool, PoolCandidateResult, candidate_hash, safe_gain, freeze_metadata
+from enrichment.learner import ProposalFailure
 from core.cost import WorkLedger
+
+
+def _jsonable(value):
+    if isinstance(value, dict) or hasattr(value, "items"):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _jsonable(value.tolist())
+    if isinstance(value, np.generic):
+        return _jsonable(value.item())
+    return value
+
+
+def _proposal_audit_envelope(candidate=None, failure=None, problem=None,
+                             state=None):
+    if candidate is not None:
+        provenance = getattr(candidate, "provenance", {})
+        if provenance.get("learner") != "P1PoissonHatWeakLearner":
+            return None
+        validator = getattr(problem, "validate_p1_candidate_binding", None)
+        if (state is None or not callable(validator)
+                or not validator(candidate, state)):
+            raise ValueError("p1_candidate_certificate_binding_invalid")
+        certificate_json = provenance.get("certificate_record_json")
+        certificate_sha256 = provenance.get("certificate_sha256")
+        if not isinstance(certificate_json, str) or not isinstance(certificate_sha256, str):
+            raise ValueError("P1 candidate lacks replayable certificate provenance")
+        certificate_bytes = certificate_json.encode("utf-8")
+        if len(certificate_bytes) > MAX_PROPOSAL_CERTIFICATE_BYTES:
+            raise ProposalAuditTooLarge(len(certificate_bytes))
+        actual_certificate_sha256 = hashlib.sha256(certificate_bytes).hexdigest()
+        if actual_certificate_sha256 != certificate_sha256:
+            raise ValueError("P1 certificate digest mismatch")
+        envelope = {
+            "schema": "cem.p1_proposal_audit.v1",
+            "outcome": "verified_candidate",
+            "element_id": candidate.element_id,
+            "problem_fingerprint": provenance.get("problem_fingerprint"),
+            "candidate_fingerprint": candidate.fingerprint(),
+            "support": _jsonable(candidate.support),
+            "parameters": _jsonable(candidate.parameters),
+            "certificate_status": provenance.get("certificate_status"),
+            "certificate_record_json": certificate_json,
+            "certificate_sha256": certificate_sha256,
+            "work_audit": _jsonable(provenance.get("work_audit")),
+        }
+    elif failure is not None:
+        envelope = {
+            "schema": "cem.p1_proposal_audit.v1",
+            "outcome": "typed_failure",
+            "element_id": None,
+            "problem_fingerprint": getattr(problem, "problem_fingerprint", None),
+            "proposal_status": failure.status,
+            "reason_code": failure.reason_code,
+            "work_audit": _jsonable(failure.work_audit),
+        }
+    else:
+        return None
+    encoded = canonical_json_bytes(envelope)
+    if len(encoded) > MAX_PROPOSAL_AUDIT_BYTES:
+        raise ProposalAuditTooLarge(len(encoded))
+    serialized = encoded.decode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    if not verify_proposal_audit(serialized, digest, problem=problem,
+                                 state=state if candidate is not None else None):
+        raise ValueError("proposal audit failed canonical replay verification")
+    return serialized, digest
+
+
+def _snapshot_values_equal(left: StateSnapshot, right: StateSnapshot) -> bool:
+    return snapshots_equal(left, right)
 
 @dataclass
 class CEMSolver:
@@ -19,16 +102,22 @@ class CEMSolver:
     def __post_init__(self):
         self.learners = tuple(self.learners); self.ledger = self.ledger or CorrectionLedger(); self.work_ledger = self.work_ledger or WorkLedger()
         problem_geometry=getattr(self.problem, "objective_geometry", None); scorer_geometry=getattr(self.scorer, "objective_geometry", None)
-        if problem_geometry == "ritz_energy" and scorer_geometry != "ritz_energy": raise TypeError("DiscreteRitzProblem requires RitzCandidateScorer")
-        if scorer_geometry == "ritz_energy" and problem_geometry != "ritz_energy": raise TypeError("RitzCandidateScorer requires DiscreteRitzProblem")
-        if hasattr(self.problem, "work_ledger"):
+        if problem_geometry == "ritz_energy":
+            if scorer_geometry != "ritz_energy" or not isinstance(self.problem, RitzEnergyProblem):
+                raise TypeError("RitzEnergyProblem requires RitzCandidateScorer and nominal RitzEnergyProblem inheritance")
+            self.problem.validate_contract()
+        if scorer_geometry == "ritz_energy" and not isinstance(self.problem, RitzEnergyProblem):
+            raise TypeError("RitzCandidateScorer requires a nominal RitzEnergyProblem")
+        if callable(getattr(self.problem, "attach_work_ledger", None)):
+            self.problem.attach_work_ledger(self.work_ledger)
+        elif hasattr(self.problem, "work_ledger"):
             try: self.problem.work_ledger = self.work_ledger
             except (AttributeError, TypeError): pass
         mode = getattr(self.policy, "mode", "stagewise")
         if mode not in ("stagewise", "fully_corrective"):
             raise ValueError("policy.mode must be 'stagewise' or 'fully_corrective'")
         if hasattr(self.problem, "validate_state"): self.problem.validate_state(self.state)
-        if mode == "fully_corrective" and not isinstance(self.problem, (LinearPDEProblem, DiscreteRitzProblem, MatrixFreeRitzProblem)):
+        if mode == "fully_corrective" and not isinstance(self.problem, (LinearPDEProblem, RitzEnergyProblem)):
             raise TypeError("FullyCorrectivePolicy requires a supported linear or Ritz problem")
         if mode in ("stagewise", "fully_corrective"):
             coeff = self.state.outer_coefficients
@@ -36,25 +125,77 @@ class CEMSolver:
                 raise ValueError("solver restart requires active_element_ids=() and outer_coefficients=None or empty; checkpoint registry restore is not implemented")
         self._base_values = self.state.values.copy(); self._active_candidates = {}
 
-    def _record(self, candidate, before, score, accepted, status, touched=(), frozen=(), work_event_ids=()):
-        eid = getattr(candidate, "element_id", "proposal-error")
-        family = getattr(candidate, "family", "unknown")
-        support = getattr(candidate, "support", {}); params = getattr(candidate, "parameters", {})
-        cost = getattr(candidate, "proposal_cost", {})
-        scoring_cost = {"estimated_operator_evaluations": 1, "estimated_weighted_inner_products": 3} if np.isfinite(getattr(score, "q", np.nan)) else {"estimated_operator_evaluations": 0, "estimated_weighted_inner_products": 0}
-        self.ledger.append(CorrectionRecord(eid, family, support, params, cost, scoring_cost, getattr(score,"predicted_reduction",np.nan), getattr(score,"before",np.nan), getattr(score,"after",np.nan), accepted, status, before, self.state.hash(), tuple(touched), tuple(frozen), tuple(dict.fromkeys(work_event_ids))))
+    def _record(self, candidate, before, score, accepted, status, touched=(), frozen=(), work_event_ids=(), *,
+                proposal_status=None, reason_code=None, proposal_audit_json=None,
+                proposal_audit_sha256=None):
+        eid = None if candidate is None else getattr(candidate, "element_id", None)
+        family = None if candidate is None else getattr(candidate, "family", None)
+        support = None if candidate is None else getattr(candidate, "support", {})
+        params = None if candidate is None else getattr(candidate, "parameters", {})
+        cost = None if candidate is None else getattr(candidate, "proposal_cost", {})
+        scoring_cost = None if candidate is None else (
+            {"estimated_operator_evaluations": 1,
+             "estimated_weighted_inner_products": 3}
+            if np.isfinite(getattr(score, "q", np.nan))
+            else {"estimated_operator_evaluations": 0,
+                  "estimated_weighted_inner_products": 0})
+        record = CorrectionRecord(
+            eid, family, support, params, cost, scoring_cost,
+            getattr(score, "predicted_reduction", np.nan),
+            getattr(score, "before", np.nan), getattr(score, "after", np.nan),
+            accepted, status, before, self.state.hash(),
+            tuple(touched) if candidate is not None else (),
+            tuple(frozen) if candidate is not None else (),
+            tuple(dict.fromkeys(work_event_ids)),
+            record_schema_version=2,
+            state_hash_algorithm_version=STATE_HASH_ALGORITHM_VERSION,
+            proposal_status=proposal_status,
+            reason_code=reason_code,
+            proposal_audit_json=proposal_audit_json,
+            proposal_audit_sha256=proposal_audit_sha256,
+        )
+        if proposal_audit_json is not None and not verify_proposal_audit(
+                proposal_audit_json, proposal_audit_sha256):
+            raise ValueError("refusing to append an unverifiable proposal audit")
+        if reason_code == "proposal_audit_oversize":
+            event_ids = record.work_event_ids
+            if (len(event_ids) > MAX_ATTEMPT_WORK_EVENT_IDS
+                    or any(len(item.encode("utf-8")) > MAX_WORK_EVENT_ID_BYTES
+                           for item in event_ids)):
+                raise RuntimeError("oversize fallback event-reference bound exceeded")
+            if len(canonical_json_bytes(correction_record_dict(record))) > MAX_TERMINAL_AUDIT_BYTES:
+                raise RuntimeError("oversize fallback record bound exceeded")
+        self.ledger.append(record)
+
+    def _state_matches_snapshot(self, snapshot: StateSnapshot,
+                                expected_hash: str) -> bool:
+        try:
+            return (self.state.hash() == expected_hash
+                    and snapshots_equal(self.state.snapshot(), snapshot))
+        except Exception:
+            return False
+
+    def _restore_pre_step_state(self, snapshot: StateSnapshot,
+                                expected_hash: str,
+                                registry: dict[str, object]) -> bool:
+        unchanged = self._state_matches_snapshot(snapshot, expected_hash)
+        if not unchanged:
+            self.state.restore(snapshot)
+        registry_unchanged = (self._active_candidates.keys() == registry.keys()
+                              and all(self._active_candidates[key] is registry[key]
+                                      for key in registry))
+        if not registry_unchanged:
+            self._active_candidates = dict(registry)
+            unchanged = False
+        return unchanged
 
     def _fc_trial(self, active_map):
         ids = tuple(active_map)
-        if isinstance(self.problem, (DiscreteRitzProblem, MatrixFreeRitzProblem)):
+        if isinstance(self.problem, RitzEnergyProblem):
             corrections = np.column_stack([active_map[i].correction for i in ids]) if ids else np.zeros((self.state.values.size, 0))
             try:
-                if isinstance(self.problem, DiscreteRitzProblem):
-                    actions=np.column_stack([self.problem.apply_operator(corrections[:,j]) for j in range(corrections.shape[1])]) if ids else np.zeros_like(corrections)
-                    base_action=self.problem.apply_operator(self._base_values)
-                else:
-                    actions=np.column_stack([self.problem.apply_operator(corrections[:,j]) for j in range(corrections.shape[1])]) if ids else np.zeros_like(corrections)
-                    base_action=self.problem.apply_operator(self._base_values)
+                actions=np.column_stack([self.problem.apply_operator(corrections[:,j]) for j in range(corrections.shape[1])]) if ids else np.zeros_like(corrections)
+                base_action=self.problem.apply_operator(self._base_values)
                 G=corrections.T @ actions; rhs=corrections.T @ (self.problem.source-base_action)
                 if ids:
                     eig=np.linalg.eigvalsh(G); scale=max(1.0, float(np.max(eig)))
@@ -81,57 +222,245 @@ class CEMSolver:
         return values, coeff, ids
 
     def step(self, budget=None):
-        budget = {} if budget is None else dict(budget); before_hash = self.state.hash(); step_id=self.work_ledger.new_step(); self._current_step_id=step_id; step_work_ids=[]
+        budget = {} if budget is None else dict(budget)
+        step_id = self.work_ledger.new_step()
+        self._current_step_id = step_id
+        step_work_ids = []
+        step_snapshot = immutable_snapshot(self.state.snapshot())
+        step_hash = self.state.hash()
         try:
-            with self.work_ledger.context(solver_step_id=step_id, event_ids=step_work_ids): residual = np.asarray(self.problem.residual(self.state), dtype=float)
+            with self.work_ledger.span("residual", solver_step_id=step_id,
+                                       event_ids=step_work_ids):
+                with self.work_ledger.context(solver_step_id=step_id,
+                                              event_ids=step_work_ids):
+                    residual = np.asarray(self.problem.residual(self.state), dtype=float)
             if residual.ndim != 1 or not np.all(np.isfinite(residual)):
                 raise ValueError("problem residual must be a finite one-dimensional array")
+            if not self._state_matches_snapshot(step_snapshot, step_hash):
+                self.state.restore(step_snapshot)
+                raise RuntimeError("state_changed_during_residual")
         except Exception as exc:
-            failure = type("Failure", (), {"q": np.nan, "predicted_reduction": np.nan, "before": np.nan, "after": np.nan})()
-            self._record(None, before_hash, failure, False, f"invalid_residual:{type(exc).__name__}:{exc}", (), self.state.active_element_ids, step_work_ids)
+            if not self._state_matches_snapshot(step_snapshot, step_hash):
+                self.state.restore(step_snapshot)
+            failure = type("Failure", (), {"q": np.nan, "predicted_reduction": np.nan,
+                                           "before": np.nan, "after": np.nan})()
+            self._record(None, step_hash, failure, False,
+                         f"invalid_residual:{type(exc).__name__}:{exc}", (),
+                         self.state.active_element_ids, step_work_ids)
             return None
+
         for learner in self.learners:
-            before_hash = self.state.hash(); candidate = None; registry_before = dict(self._active_candidates); attempt_id=self.work_ledger.new_attempt(); self._current_attempt_id=attempt_id; work_ids=[]
+            # Keep the private rollback baseline out of learner reach.  The
+            # proposal receives a distinct, ordinary snapshot copy so even a
+            # hostile setflags(write=True) can only alter its own input.
+            before_snapshot = immutable_snapshot(self.state.snapshot())
+            before_hash = self.state.hash()
+            proposal_snapshot = self.state.snapshot()
+            candidate = None
+            audit_json = audit_sha256 = None
+            proposal_status = reason_code = None
+            registry_before = dict(self._active_candidates)
+            attempt_id = self.work_ledger.new_attempt()
+            self._current_attempt_id = attempt_id
+            p1_lifecycle = getattr(learner, "family", None) == "p1-poisson-hat"
+            work_ids = list(step_work_ids) if p1_lifecycle else []
+            wall_id = None
             try:
-                snap = self.state.snapshot();
                 try:
-                    with self.work_ledger.span("proposal", solver_step_id=step_id, candidate_attempt_id=attempt_id, event_ids=work_ids) as wall_id:
-                        with self.work_ledger.context(solver_step_id=step_id, candidate_attempt_id=attempt_id, event_ids=work_ids): candidate = learner.propose(self.problem, snap, residual.copy(), budget)
-                    proposal_event = self.work_ledger.record_call("proposal", "proposal_calls", solver_step_id=step_id, candidate_id=getattr(candidate, "element_id", None), candidate_attempt_id=attempt_id)
+                    with self.work_ledger.span(
+                            "proposal", solver_step_id=step_id,
+                            candidate_attempt_id=attempt_id,
+                            event_ids=work_ids) as wall_id:
+                        with self.work_ledger.context(solver_step_id=step_id,
+                                                      candidate_attempt_id=attempt_id,
+                                                      event_ids=work_ids):
+                            candidate = learner.propose(
+                                self.problem, proposal_snapshot, residual.copy(), budget)
+                    proposal_event = self.work_ledger.record_call(
+                        "proposal", "proposal_calls", solver_step_id=step_id,
+                        candidate_id=getattr(candidate, "element_id", None),
+                        candidate_attempt_id=attempt_id)
                     work_ids.extend((wall_id, proposal_event))
                 except Exception:
-                    work_ids.extend((wall_id, self.work_ledger.record_call("proposal", "proposal_calls", solver_step_id=step_id, candidate_attempt_id=attempt_id, status="failed"))); raise
-                if candidate.element_id in self.state.active_element_ids: raise ValueError("duplicate element_id")
+                    failed_event = self.work_ledger.record_call(
+                        "proposal", "proposal_calls", solver_step_id=step_id,
+                        candidate_id=getattr(candidate, "element_id", None),
+                        candidate_attempt_id=attempt_id, status="failed")
+                    work_ids.extend(((wall_id,) if wall_id is not None else ()) +
+                                    (failed_event,))
+                    raise
+
+                if not self._state_matches_snapshot(before_snapshot, before_hash):
+                    self.state.restore(before_snapshot)
+                    raise RuntimeError("state_changed_during_proposal")
+                if not snapshots_equal(proposal_snapshot, before_snapshot):
+                    raise RuntimeError("proposal_snapshot_mutated")
+                if candidate.element_id in self.state.active_element_ids:
+                    raise ValueError("duplicate element_id")
+                provenance = getattr(candidate, "provenance", {})
+                candidate_claims_p1 = (isinstance(provenance, Mapping)
+                                       and provenance.get("learner")
+                                       == "P1PoissonHatWeakLearner")
+                if p1_lifecycle or candidate_claims_p1:
+                    validator = getattr(self.problem,
+                                        "validate_p1_candidate_binding", None)
+                    if (not p1_lifecycle
+                            or not candidate_claims_p1
+                            or not callable(validator)
+                            or not validator(candidate, before_snapshot)):
+                        raise ProposalFailure(
+                            "invalid_proposal",
+                            "p1_candidate_certificate_binding_mismatch",
+                            {"validation": "candidate_certificate_binding"})
+                audit = _proposal_audit_envelope(
+                    candidate=candidate, problem=self.problem,
+                    state=before_snapshot)
+                if audit is not None:
+                    audit_json, audit_sha256 = audit
+                    proposal_status = candidate.provenance.get("certificate_status")
+
                 try:
-                    with self.work_ledger.span("score", solver_step_id=step_id, candidate_id=candidate.element_id, candidate_attempt_id=attempt_id, event_ids=work_ids) as wall_id:
-                        with self.work_ledger.context(solver_step_id=step_id, candidate_id=candidate.element_id, candidate_attempt_id=attempt_id, event_ids=work_ids): score = self.scorer.score(self.problem, self.state, candidate)
-                    work_ids.extend((wall_id, self.work_ledger.record_call("score", "score_eval_calls", solver_step_id=step_id, candidate_id=candidate.element_id, candidate_attempt_id=attempt_id)))
+                    with self.work_ledger.span(
+                            "score", solver_step_id=step_id,
+                            candidate_id=candidate.element_id,
+                            candidate_attempt_id=attempt_id,
+                            event_ids=work_ids) as wall_id:
+                        with self.work_ledger.context(solver_step_id=step_id,
+                                                      candidate_id=candidate.element_id,
+                                                      candidate_attempt_id=attempt_id,
+                                                      event_ids=work_ids):
+                            score = self.scorer.score(self.problem, self.state, candidate)
+                    score_event = self.work_ledger.record_call(
+                        "score", "score_eval_calls", solver_step_id=step_id,
+                        candidate_id=candidate.element_id,
+                        candidate_attempt_id=attempt_id)
+                    work_ids.extend((wall_id, score_event))
                 except Exception:
-                    work_ids.extend((wall_id, self.work_ledger.record_call("score", "score_eval_calls", solver_step_id=step_id, candidate_id=candidate.element_id, candidate_attempt_id=attempt_id, status="failed"))); raise
+                    failed_event = self.work_ledger.record_call(
+                        "score", "score_eval_calls", solver_step_id=step_id,
+                        candidate_id=candidate.element_id,
+                        candidate_attempt_id=attempt_id, status="failed")
+                    work_ids.extend(((wall_id,) if wall_id is not None else ()) +
+                                    (failed_event,))
+                    raise
+
+                if not self._state_matches_snapshot(before_snapshot, before_hash):
+                    self.state.restore(before_snapshot)
+                    raise RuntimeError("state_changed_during_scoring")
                 accepted = bool(self.policy.decide(score))
+                if not self._state_matches_snapshot(before_snapshot, before_hash):
+                    self.state.restore(before_snapshot)
+                    raise RuntimeError("state_changed_during_policy")
                 if accepted:
                     with StateTransaction(self.state) as tx:
                         if getattr(self.policy, "mode", "stagewise") == "fully_corrective":
-                            if not hasattr(self.problem, "operator"): raise TypeError("FullyCorrectivePolicy requires a linear problem")
-                            trial_map = dict(self._active_candidates); trial_map[candidate.element_id] = candidate
+                            if not hasattr(self.problem, "operator"):
+                                raise TypeError("FullyCorrectivePolicy requires a linear/Ritz operator")
+                            trial_map = dict(self._active_candidates)
+                            trial_map[candidate.element_id] = candidate
                             self._last_refit_event_id = None
-                            with self.work_ledger.context(solver_step_id=step_id, candidate_attempt_id=attempt_id, event_ids=work_ids): values, coeff, ids = self._fc_trial(trial_map)
+                            with self.work_ledger.context(solver_step_id=step_id,
+                                                          candidate_attempt_id=attempt_id,
+                                                          event_ids=work_ids):
+                                values, coeff, ids = self._fc_trial(trial_map)
                             work_ids.append(self._last_refit_event_id)
-                            with self.work_ledger.context(solver_step_id=step_id, candidate_attempt_id=attempt_id, event_ids=work_ids): before_obj = self.problem.objective(self.state); trial_state = SolverState(values, ids, coeff); trial_obj=self.problem.objective(trial_state)
-                            if trial_obj > before_obj + 1e-12: raise ValueError("fully-corrective trial did not decrease objective")
-                            self.state.values = values; self.state.active_element_ids = ids; self.state.outer_coefficients = coeff; self._active_candidates = trial_map
+                            with self.work_ledger.context(solver_step_id=step_id,
+                                                          candidate_attempt_id=attempt_id,
+                                                          event_ids=work_ids):
+                                before_obj = self.problem.objective(self.state)
+                                trial_state = SolverState(values, ids, coeff)
+                                trial_obj = self.problem.objective(trial_state)
+                            if trial_obj > before_obj + 1e-12:
+                                raise ValueError("fully-corrective trial did not decrease objective")
+                            self.state.values = values
+                            self.state.active_element_ids = ids
+                            self.state.outer_coefficients = coeff
+                            self._active_candidates = trial_map
                         else:
                             self.state.values = self.state.values + score.alpha * candidate.correction
-                            self.state.active_element_ids = (*self.state.active_element_ids, candidate.element_id)
-                            self.state.outer_coefficients = np.asarray((*(() if self.state.outer_coefficients is None else self.state.outer_coefficients), score.alpha), float)
+                            self.state.active_element_ids = (*self.state.active_element_ids,
+                                                             candidate.element_id)
+                            self.state.outer_coefficients = np.asarray(
+                                (*(() if self.state.outer_coefficients is None
+                                   else self.state.outer_coefficients), score.alpha), float)
                         tx.commit()
+                else:
+                    if not self._state_matches_snapshot(before_snapshot, before_hash):
+                        self.state.restore(before_snapshot)
+                        raise RuntimeError("state_changed_on_rejection")
+
                 status = "accepted" if accepted else score.reason or "rejected"
-                self._record(candidate, before_hash, score, accepted, status, (candidate.element_id,) if accepted else (), self.state.active_element_ids[:-1] if accepted else self.state.active_element_ids, work_ids)
-                if accepted: return score
+                self._record(
+                    candidate, before_hash, score, accepted, status,
+                    (candidate.element_id,) if accepted else (),
+                    self.state.active_element_ids[:-1] if accepted
+                    and getattr(self.policy, "mode", "stagewise") != "fully_corrective"
+                    else tuple(item for item in self.state.active_element_ids
+                               if item != candidate.element_id),
+                    work_ids, proposal_status=proposal_status,
+                    reason_code=(score.reason or None),
+                    proposal_audit_json=audit_json,
+                    proposal_audit_sha256=audit_sha256)
+                if accepted:
+                    return score
+            except ProposalAuditTooLarge:
+                self._restore_pre_step_state(before_snapshot, before_hash,
+                                             registry_before)
+                failure = type("Failure", (), {"q": np.nan,
+                                               "predicted_reduction": np.nan,
+                                               "before": np.nan,
+                                               "after": np.nan})()
+                self._record(None, before_hash, failure, False, "proposal_failed",
+                             (), self.state.active_element_ids, work_ids,
+                             reason_code="proposal_audit_oversize")
+                return None
             except Exception as exc:
-                self._active_candidates = registry_before
-                if getattr(self, "_last_refit_event_id", None) and self._last_refit_event_id not in work_ids: work_ids.append(self._last_refit_event_id)
-                self._record(candidate, before_hash, type("Failure", (), {"q":np.nan,"predicted_reduction":np.nan,"before":np.nan,"after":np.nan})(), False, f"exception:{type(exc).__name__}:{exc}", (), self.state.active_element_ids, work_ids)
+                if getattr(self, "_last_refit_event_id", None) and self._last_refit_event_id not in work_ids:
+                    work_ids.append(self._last_refit_event_id)
+                state_unchanged = self._restore_pre_step_state(
+                    before_snapshot, before_hash, registry_before)
+                proposal_snapshot_unchanged = snapshots_equal(
+                    proposal_snapshot, before_snapshot)
+                failure = type("Failure", (), {"q": np.nan,
+                                               "predicted_reduction": np.nan,
+                                               "before": np.nan,
+                                               "after": np.nan})()
+                if isinstance(exc, ProposalFailure):
+                    try:
+                        audit = _proposal_audit_envelope(failure=exc,
+                                                         problem=self.problem)
+                    except ProposalAuditTooLarge:
+                        self._record(None, before_hash, failure, False,
+                                     "proposal_failed", (),
+                                     self.state.active_element_ids, work_ids,
+                                     reason_code="proposal_audit_oversize")
+                        return None
+                    audit_json, audit_sha256 = audit
+                    self._record(
+                        None, before_hash, failure, False, "proposal_failed", (),
+                        self.state.active_element_ids, work_ids,
+                        proposal_status=exc.status,
+                        reason_code=(
+                            exc.reason_code
+                            if state_unchanged and proposal_snapshot_unchanged
+                            else ("proposal_snapshot_mutated"
+                                  if not proposal_snapshot_unchanged
+                                  else "state_changed_during_proposal")),
+                        proposal_audit_json=audit_json,
+                        proposal_audit_sha256=audit_sha256)
+                else:
+                    self._record(
+                        candidate, before_hash, failure, False,
+                        f"exception:{type(exc).__name__}:{exc}", (),
+                        self.state.active_element_ids, work_ids,
+                        proposal_status=proposal_status,
+                        reason_code=(
+                            None if state_unchanged and proposal_snapshot_unchanged
+                            else ("proposal_snapshot_mutated"
+                                  if not proposal_snapshot_unchanged
+                                  else "state_changed_during_attempt")),
+                        proposal_audit_json=audit_json,
+                        proposal_audit_sha256=audit_sha256)
         return None
 
     def step_pool(self, selector, pool=None, budget=None):

@@ -35,8 +35,9 @@ class RitzCandidateScorer:
     """Stagewise scorer for the finite-dimensional discrete Ritz objective."""
     def __init__(self, q_epsilon=1e-14, identity_tolerance=1e-10): self.q_epsilon=float(q_epsilon); self.identity_tolerance=float(identity_tolerance)
     def score(self, problem, state, candidate):
-        from problems.problem import DiscreteRitzProblem, MatrixFreeRitzProblem
-        if not isinstance(problem, (DiscreteRitzProblem, MatrixFreeRitzProblem)): raise TypeError("RitzCandidateScorer requires a Ritz problem")
+        from problems.problem import RitzEnergyProblem
+        if not isinstance(problem, RitzEnergyProblem): raise TypeError("RitzCandidateScorer requires a RitzEnergyProblem")
+        problem.validate_contract()
         if candidate.correction.shape != state.values.shape: return Score(False, False, 0, 0, 0, 0, np.nan, np.nan, "shape_mismatch")
         image=problem.apply_operator(candidate.correction)
         if candidate.operator_image is not None and (candidate.operator_image.shape != image.shape or not np.allclose(candidate.operator_image, image, rtol=1e-10, atol=1e-12)):

@@ -12,6 +12,13 @@ dependencies = ["numpy>=1.24"]
 [tool.setuptools]
 package-dir = {"" = "src"}
 py-modules = ["solver", "estimators_1d", "p1_poisson_hat"]
+# The wheel contains only declared Python source packages/modules. In
+# particular, do not collect ignored bytecode or other incidental package data.
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["**.__pycache__", "**.__pycache__.*"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", "**/__pycache__/*", "*.pyc", "**/*.pyc", "*.pyo", "**/*.pyo"]

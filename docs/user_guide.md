@@ -146,6 +146,67 @@ create implicit block semantics. Learners are attempted in the order supplied
 to `CEMSolver`; the first accepted candidate is committed, and later learners
 are not called during that `step()`.
 
+### Finite P1 hat proposal through the solver lifecycle
+
+The bounded 1D P1 hat learner can be used as a `CEMSolver` learner with
+`P1Poisson1DRitzProblem`, `RitzCandidateScorer`, and a Stagewise or
+Fully-Corrective policy. It searches a finite inactive interior-hat set. A
+typed `ProposalFailure` (including `P1HatProposalError`) is caught by the
+solver: `step()` returns `None`, the pre-attempt solution and active-candidate
+registry are restored, and the ledger receives a `proposal_failed` record with
+`proposal_status`, `reason_code`, and a canonical audit envelope when within
+the size caps. This is a finite software/API path; it does not provide a
+continuous-PDE error or convergence guarantee.
+
+```python
+import numpy as np
+from core import CorrectionLedger, SolverState
+from core.ledger import verify_proposal_audit
+from estimators_1d import P1Poisson1DData
+from p1_poisson_hat import P1PoissonHatWeakLearner
+from problems import P1Poisson1DRitzProblem
+from solver import CEMSolver
+from strategies import RitzCandidateScorer, StagewisePolicy
+
+data = P1Poisson1DData(
+    np.array([0.0, 0.5, 1.0]), np.array([1.0, 1.0]))
+problem = P1Poisson1DRitzProblem(data)
+state = SolverState(np.zeros(problem.dimension))
+ledger = CorrectionLedger()
+solver = CEMSolver(
+    problem, (P1PoissonHatWeakLearner(),), RitzCandidateScorer(),
+    StagewisePolicy(), state, ledger=ledger)
+
+before_first_step = state.snapshot()
+assert solver.step() is not None
+accepted = ledger.records[-1]
+assert accepted.proposal_status == "verified_positive_gain"
+assert verify_proposal_audit(
+    accepted.proposal_audit_json, accepted.proposal_audit_sha256,
+    problem=problem, state=before_first_step)
+
+state_after_accept = state.hash()
+assert solver.step() is None  # The only interior hat is now active.
+failed = ledger.records[-1]
+assert failed.status == "proposal_failed"
+assert failed.proposal_status == "dictionary_exhausted"
+assert failed.reason_code == "all_hats_active"
+assert state.hash() == state_after_accept
+assert verify_proposal_audit(
+    failed.proposal_audit_json, failed.proposal_audit_sha256)
+restored = CorrectionLedger.from_dicts(ledger.to_dicts())
+assert restored.records[-1].record_schema_version == 2
+```
+
+`CorrectionLedger.from_dicts()` accepts legacy v1 and current v2 rows, but
+loading is not an audit-integrity check; verify each non-null audit pair as
+shown. `CorrectionRecord.record_schema_version` and
+`state_hash_algorithm_version` are separate. New records use schema/hash
+version 2; the current state hash distinguishes absent coefficients from a
+present empty vector and binds array dtype and shape. The API reference gives
+the exact fields, legacy defaults, verifier behavior, and serialized-size
+limits.
+
 ### Custom learner contract
 
 ```python

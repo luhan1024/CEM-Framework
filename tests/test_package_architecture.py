@@ -24,7 +24,7 @@ PACKAGE_EXPORTS = {
     "problems": (
         "Operator", "TransposeOperator", "NumpyMatrixOperator", "CallableOperator",
         "LinearPDEProblem", "DiscreteRitzProblem", "MatrixFreeRitzProblem",
-        "NonlinearPDEProblem", "DiscreteRitzStepCertificate",
+        "NonlinearPDEProblem", "RitzEnergyProblem", "DiscreteRitzStepCertificate",
         "certify_discrete_ritz_step", "verify_discrete_ritz_certificate",
         "PolynomialPoisson1DError", "PolynomialPoissonEnclosure1D",
         "build_polynomial_poisson_1d_enclosure",
@@ -33,7 +33,7 @@ PACKAGE_EXPORTS = {
         "verify_p1_poisson_step_certificate", "P1Poisson1DRitzProblem",
     ),
     "enrichment": (
-        "Candidate", "WeakLearner", "AnalyticLearner", "LocalBasisLearner",
+        "Candidate", "WeakLearner", "ProposalFailure", "AnalyticLearner", "LocalBasisLearner",
         "CandidatePool", "PoolCandidateResult", "BestPredictedGainSelector",
         "SelectionResult", "candidate_to_json", "candidate_from_json",
     ),
@@ -60,6 +60,7 @@ PUBLIC_OWNERS = {
     "DiscreteRitzProblem": "problems.problem",
     "MatrixFreeRitzProblem": "problems.problem",
     "NonlinearPDEProblem": "problems.problem",
+    "RitzEnergyProblem": "problems.problem",
     "DiscreteRitzStepCertificate": "problems.ritz_certificate",
     "certify_discrete_ritz_step": "problems.ritz_certificate",
     "verify_discrete_ritz_certificate": "problems.ritz_certificate",
@@ -75,6 +76,7 @@ PUBLIC_OWNERS = {
     "P1PoissonHatWeakLearner": "p1_poisson_hat",
     "Candidate": "enrichment.learner",
     "WeakLearner": "enrichment.learner",
+    "ProposalFailure": "enrichment.learner",
     "AnalyticLearner": "enrichment.learner",
     "LocalBasisLearner": "enrichment.learner",
     "CandidatePool": "enrichment.pool",

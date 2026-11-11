@@ -4,6 +4,40 @@ from typing import Callable
 import numpy as np
 from .operators import as_operator
 
+
+class RitzEnergyProblem:
+    """Nominal contract for finite-dimensional Ritz-energy adapters.
+
+    Inheriting this marker is required at solver/scorer gates; matching the
+    attribute names alone is insufficient. Each implementation remains
+    responsible for its own SPD and objective-consistency guarantees.
+    """
+
+    objective_geometry = "ritz_energy"
+
+    def validate_contract(self) -> None:
+        shape = getattr(self, "shape", None)
+        if (not isinstance(shape, tuple) or len(shape) != 2
+                or any(isinstance(size, (bool, np.bool_))
+                       or not isinstance(size, (int, np.integer)) for size in shape)
+                or int(shape[0]) != int(shape[1]) or int(shape[0]) < 0):
+            raise TypeError("RitzEnergyProblem requires a square-compatible shape")
+        source = np.asarray(getattr(self, "source", None))
+        if source.shape != (int(shape[0]),) or not np.all(np.isfinite(source)):
+            raise TypeError("RitzEnergyProblem source must be a finite shape-compatible vector")
+        operator = getattr(self, "operator", None)
+        operator_shape = getattr(operator, "shape", None)
+        if operator_shape != shape:
+            raise TypeError("RitzEnergyProblem operator shape must match problem shape")
+        if operator is self:
+            if not callable(getattr(self, "apply_operator", None)):
+                raise TypeError("self operator must implement apply_operator")
+        elif not callable(getattr(operator, "apply", None)):
+            raise TypeError("RitzEnergyProblem operator must expose apply")
+        for method in ("apply_operator", "residual", "objective", "admissible", "validate_state"):
+            if not callable(getattr(self, method, None)):
+                raise TypeError(f"RitzEnergyProblem requires {method}()")
+
 @dataclass
 class LinearPDEProblem:
     objective_geometry = "strong_residual_least_squares"
@@ -41,7 +75,7 @@ class LinearPDEProblem:
         self._work("objective_eval_calls", "objective"); return result
 
 @dataclass
-class DiscreteRitzProblem:
+class DiscreteRitzProblem(RitzEnergyProblem):
     """Finite-dimensional SPD Ritz adapter; this is not a weak-form PDE integrator."""
     K: np.ndarray
     source: np.ndarray
@@ -60,6 +94,8 @@ class DiscreteRitzProblem:
         except np.linalg.LinAlgError as exc: raise ValueError("K SPD check failed") from exc
         if eig[0] <= float(self.spd_tol): raise ValueError("K must be positive definite")
         self.K=K.copy(); self.K.setflags(write=False); self.source=f.copy(); self.source.setflags(write=False)
+    @property
+    def shape(self): return self.K.shape
     @property
     def operator(self): return self
     def _work(self, quantity, phase, status="completed"):
@@ -85,7 +121,7 @@ class DiscreteRitzProblem:
         self._work("objective_eval_calls", "ritz_objective"); return result
 
 @dataclass
-class MatrixFreeRitzProblem:
+class MatrixFreeRitzProblem(RitzEnergyProblem):
     """Matrix-free finite Ritz adapter with caller-declared SPD semantics."""
     operator: object
     source: np.ndarray
@@ -93,6 +129,8 @@ class MatrixFreeRitzProblem:
     work_ledger: object | None = None
     spd_assumption: str = "caller_declared"
     objective_geometry = "ritz_energy"
+    @property
+    def shape(self): return tuple(int(size) for size in self.operator.shape)
     def __post_init__(self):
         if self.spd_assumption != "caller_declared": raise ValueError("spd_assumption must be exactly 'caller_declared'")
         shape=getattr(self.operator, "shape", None)

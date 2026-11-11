@@ -6,6 +6,7 @@ from .problem import (
     LinearPDEProblem,
     MatrixFreeRitzProblem,
     NonlinearPDEProblem,
+    RitzEnergyProblem,
 )
 from .ritz_certificate import (
     DiscreteRitzStepCertificate,
@@ -34,6 +35,7 @@ __all__ = [
     "DiscreteRitzProblem",
     "MatrixFreeRitzProblem",
     "NonlinearPDEProblem",
+    "RitzEnergyProblem",
     "DiscreteRitzStepCertificate",
     "certify_discrete_ritz_step",
     "verify_discrete_ritz_certificate",

@@ -42,10 +42,12 @@ residual, budget)` returns a Candidate. `AnalyticLearner` and
 `LocalBasisLearner` are built-in examples. `element_id` uniqueness is enforced
 within the solver active set; audit workflows should not recycle identifiers.
 
-### Proposal-only finite P1 hat learner
+### Finite P1 hat learner and `CEMSolver` integration
 
-Import `P1HatProposalError` and `P1PoissonHatWeakLearner` from the top-level
-`p1_poisson_hat` module; `P1Poisson1DRitzProblem` is exported by `problems`.
+Import `P1PoissonHatWeakLearner` and its concrete error `P1HatProposalError`
+from the top-level `p1_poisson_hat` module. The structured base exception
+`ProposalFailure` is exported by `enrichment`. `P1Poisson1DRitzProblem` is
+exported by `problems`, and `P1Poisson1DData` by `estimators_1d`.
 `P1Poisson1DRitzProblem(data)` is a matrix-free, immutable P1 Ritz adapter for
 the bounded zero-Dirichlet 1D Poisson data represented by
 `P1Poisson1DData`. `P1PoissonHatWeakLearner.propose(problem, state, residual,
@@ -62,11 +64,16 @@ No-candidate and rejected-preflight outcomes raise `P1HatProposalError` with
 finite `status`, `reason_code`, and immutable partial `work_audit`; statuses
 include `empty_dictionary`, `dictionary_exhausted`, `no_positive_gain`,
 `budget_exceeded`, `problem_state_mismatch`, `residual_mismatch`, and
-`active_set_invalid`. Budget overrides may lower documented caps but cannot
-raise them; metadata size, serialization bytes, and hash bytes are preflighted
-and recorded as actual/reserved quantities. This is a proposal-only API: it is
-not wired into `CEMSolver`, does not certify an accepted state update, and does
-not establish continuous-PDE error bounds, convergence, or performance claims.
+`active_set_invalid`. The learner composes with `CEMSolver` using
+`RitzCandidateScorer` and a Stagewise or Fully-Corrective policy. A typed
+`ProposalFailure` is caught by `CEMSolver.step()`: the pre-attempt state and
+active-candidate registry are restored, `step()` returns `None`, and a
+`proposal_failed` `CorrectionRecord` is appended with `proposal_status`,
+`reason_code`, and a typed-failure audit envelope when it fits the size limits.
+Budget overrides may lower documented caps but cannot raise them; metadata
+size, serialization bytes, and hash bytes are preflighted and recorded as
+actual/reserved quantities. This finite 1D integration does not establish
+continuous-PDE error bounds, convergence, or performance claims.
 
 ## Scoring and policy
 
@@ -87,12 +94,55 @@ return this shape-compatible result; custom policies consume
 `SolverState(values, active_element_ids=(), outer_coefficients=None)` owns the
 mutable solution vector and decomposition metadata. `snapshot()` returns a
 read-only `StateSnapshot(values, active_element_ids, outer_coefficients)`;
-learners receive this snapshot and cannot mutate solver state. `hash()` covers
-values, IDs, and coefficients.
+learners receive a distinct snapshot. The solver keeps a private immutable
+rollback baseline and detects snapshot/state mutation around learner, scorer,
+and policy calls. `SolverState.hash()` currently uses
+`STATE_HASH_ALGORITHM_VERSION == 2`: SHA-256 is domain-separated by
+`cem.solver_state.v2`, and binds each array's dtype, shape, and C-order bytes,
+the active IDs, and whether `outer_coefficients` is absent or present. A
+present empty vector is distinct from `None`.
 
 `CorrectionRecord` contains `element_id`, `family`, `support`, `parameters`,
 `proposal_cost`, `scoring_cost`, `predicted_reduction`, `before`, `after`,
-`accepted`, `status`, before/after state hashes, and touched/frozen IDs.
+`accepted`, `status`, before/after state hashes, and touched/frozen IDs. Current
+records also expose `record_schema_version` (2),
+`state_hash_algorithm_version` (2 for newly written records), `proposal_status`,
+`reason_code`, `proposal_audit_json`, and `proposal_audit_sha256`. The record
+schema version describes the serialized fields; the state-hash algorithm
+version describes the algorithm used for `state_hash_before/after` and is a
+separate version number. For an audited P1 candidate, `proposal_status` is its
+certificate status (for example `verified_positive_gain`) and
+`reason_code` is the scorer reason or `None`. For a typed proposal failure,
+`proposal_status` is the exception status (for example `dictionary_exhausted`)
+and `reason_code` is its structured reason (for example `all_hats_active`).
+The audit JSON and digest are `None` when no audit envelope was produced; an
+oversize fallback also omits both.
+
+`CorrectionLedger.from_dicts()` reads legacy v1 and current v2 CorrectionRecord
+and PoolAuditRecord rows. A legacy row without version fields is read as schema
+v1/hash v1; missing v2 proposal-audit fields are filled with `None`. V2 rows
+must carry a supported state-hash version (1 or 2). Unknown schema versions,
+unsupported hash versions, and unknown fields are rejected. Loading a ledger
+does not by itself verify proposal-audit JSON or its digest.
+
+For proposal-audit integrity, `proposal_audit_json` is canonical JSON (sorted
+keys, compact separators, ASCII escaping, non-finite values forbidden), and
+`proposal_audit_sha256` is SHA-256 of its exact UTF-8 bytes. The public
+module-level verifier is `verify_proposal_audit` from `core.ledger`:
+`verify_proposal_audit(payload_json, payload_sha256, problem=None, state=None)`.
+It returns a boolean. For a `verified_candidate` envelope, supplying both
+`problem` and the pre-attempt `state` snapshot additionally checks the P1
+candidate binding against that problem and state; supply both or neither. A
+`typed_failure` envelope has no candidate to bind, so its verification covers
+the canonical payload, digest, schema, and failure fields. After loading ledger
+rows, callers should explicitly verify every non-null audit pair. The audit
+envelope is capped at
+8,000,000 UTF-8 bytes and the embedded P1 certificate at 4,000,000 bytes. An
+oversize attempt is recorded with `reason_code="proposal_audit_oversize"` and
+a bounded terminal record (at most 16,384 bytes, 32 referenced work-event IDs,
+each at most 128 UTF-8 bytes); the audit payload is omitted from that fallback
+record.
+
 `CorrectionLedger.records` preserves records in order and `to_dicts()` exports
 JSON-friendly data. Export maps non-finite floating values to JSON `null`
 without changing in-memory records; unsupported objects are not silently
@@ -104,7 +154,10 @@ discarded.
 state, active registry, and correction ledger. `step(budget=None)` returns an
 accepted `Score` or `None`. Rejections return `None` and append a rejected
 record; learner/scorer/policy exceptions are caught, state/registry are
-restored, and an exception record is appended. FC construction requires
+restored, and a failure/rejection record is appended. In particular, a typed
+`ProposalFailure` raised by the integrated P1 learner is recorded with its
+status/reason and audit envelope; it is not treated as an accepted candidate.
+FC construction requires
 `active_element_ids=()` and `outer_coefficients=None` or empty; every non-empty
 coefficient array is rejected for both Stagewise and FC policies, and no policy
 supports checkpoint registry restoration. Before learners

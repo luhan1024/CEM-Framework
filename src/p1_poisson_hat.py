@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from core.state import SolverState
+from core.state import SolverState, StateSnapshot
 from problems.p1_poisson_1d import (
     MAX_EXACT_RATIONAL_OPERATIONS,
     MAX_FRACTION_COMPONENT_BITS,
@@ -22,7 +22,7 @@ from problems.p1_poisson_1d import (
     certify_p1_poisson_step,
 )
 from problems.p1_poisson_ritz import P1Poisson1DRitzProblem
-from enrichment.learner import Candidate
+from enrichment.learner import Candidate, ProposalFailure
 
 
 _STATUS_REASONS = {
@@ -92,17 +92,14 @@ def _plain(value: Any) -> Any:
     return value
 
 
-class P1HatProposalError(RuntimeError):
+class P1HatProposalError(ProposalFailure):
     """Finite, auditable no-candidate or rejected-proposal outcome."""
 
     def __init__(self, status: str, reason_code: str,
                  work_audit: Mapping[str, Any]) -> None:
         if status not in _STATUS_REASONS or reason_code not in _STATUS_REASONS[status]:
             raise ValueError("invalid P1 hat proposal error status/reason")
-        self.status = status
-        self.reason_code = reason_code
-        self.work_audit = _freeze_mapping(work_audit)
-        super().__init__(f"{status}:{reason_code}")
+        super().__init__(status, reason_code, _freeze_mapping(work_audit))
 
 
 class _Work:
@@ -270,29 +267,35 @@ class _ExactOps:
 
 
 def _state_snapshot(state: object, dimension: int, work: _Work):
-    if type(state) is not SolverState:
+    if type(state) is SolverState:
+        source = state.snapshot()
+    elif type(state) is StateSnapshot:
+        source = state
+    else:
         _error(work, "problem_state_mismatch", "state_type")
-    if (type(state.values) is not np.ndarray or state.values.dtype != np.dtype(np.float64)
-            or state.values.ndim != 1 or state.values.shape != (dimension,)):
+    if (type(source.values) is not np.ndarray or source.values.dtype != np.dtype(np.float64)
+            or source.values.ndim != 1 or source.values.shape != (dimension,)):
         _error(work, "problem_state_mismatch", "state_shape_or_dtype")
-    if not np.all(np.isfinite(state.values)):
+    if not np.all(np.isfinite(source.values)):
         _error(work, "problem_state_mismatch", "state_nonfinite")
-    if type(state.active_element_ids) is not tuple:
+    if type(source.active_element_ids) is not tuple:
         _error(work, "active_set_invalid", "active_ids_not_tuple")
-    for item in state.active_element_ids:
+    for item in source.active_element_ids:
         if not isinstance(item, str):
             _error(work, "active_set_invalid", "active_id_not_string")
-    if state.outer_coefficients is not None:
-        if (type(state.outer_coefficients) is not np.ndarray
-                or state.outer_coefficients.dtype != np.dtype(np.float64)
-                or state.outer_coefficients.ndim != 1
-                or not np.all(np.isfinite(state.outer_coefficients))):
+    coefficients = source.outer_coefficients
+    if coefficients is not None:
+        if (type(coefficients) is not np.ndarray
+                or coefficients.dtype != np.dtype(np.float64)
+                or coefficients.ndim != 1
+                or not np.all(np.isfinite(coefficients))):
             _error(work, "problem_state_mismatch", "state_shape_or_dtype")
-    try:
-        snapshot = state.snapshot()
-    except Exception:
-        _error(work, "problem_state_mismatch", "state_shape_or_dtype")
-    return snapshot
+    # Freeze private byte-backed arrays so even a writable owner cannot mutate
+    # the proposal snapshot while exact work is in progress.
+    values = np.frombuffer(source.values.tobytes(order="C"), dtype=source.values.dtype).reshape(source.values.shape)
+    frozen_coefficients = None if coefficients is None else np.frombuffer(
+        coefficients.tobytes(order="C"), dtype=coefficients.dtype).reshape(coefficients.shape)
+    return StateSnapshot(values, tuple(source.active_element_ids), frozen_coefficients)
 
 
 def _state_fingerprint(problem: P1Poisson1DRitzProblem, snapshot: object) -> tuple[str, int, int]:
@@ -322,10 +325,12 @@ def _state_fingerprint(problem: P1Poisson1DRitzProblem, snapshot: object) -> tup
     return digest.hexdigest(), len(payloads), sum(len(payload) for payload in payloads)
 
 
-def _state_is_unchanged(state: SolverState, initial: str,
+def _state_is_unchanged(state: SolverState | StateSnapshot, initial: str,
                         problem: P1Poisson1DRitzProblem) -> bool:
     try:
-        snapshot = state.snapshot()
+        snapshot = state.snapshot() if type(state) is SolverState else state
+        if type(snapshot) is not StateSnapshot:
+            return False
         current, _, _ = _state_fingerprint(problem, snapshot)
         return current == initial
     except Exception:
