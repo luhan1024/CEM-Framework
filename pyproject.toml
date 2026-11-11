@@ -11,7 +11,7 @@ dependencies = ["numpy>=1.24"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["solver", "estimators_1d"]
+py-modules = ["solver", "estimators_1d", "p1_poisson_hat"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

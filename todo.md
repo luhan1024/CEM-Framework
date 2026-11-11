@@ -184,14 +184,12 @@ unrelated imports; README and API docs state this risk.
   `strategies` successfully. Initial pip temp-path denial was resolved by
   placing TMP/TEMP under the permitted workspace; no external dependencies
   were fetched (`--no-deps`, `--no-build-isolation`, `PIP_NO_INDEX=1`).
-- **Stage 2/P1 remains OPEN.** Next unique deliverable, if authorized: design
-  independent review of the exact 1D piecewise-linear Poisson certificate
-  contract in `docs/p1-piecewise-linear-poisson-certificate-contract.md`.
-  Do not implement until reviewed; reject or narrow it if arithmetic, replay,
-  or resource limits cannot be proved. Do not treat finite-pool ratios as
-  continuous-dictionary guarantees or the historical test count as scientific
-  proof. This records the state at the end of the audit step; section K records
-  the subsequent review and implementation gate.
+- **Stage 2/P1 remains OPEN.** At the end of this audit step, the next item was
+  independent review of the exact 1D P1 certificate contract. Section K records
+  that later review and bounded software implementation; section L records the
+  current unique next gate. The historical finite-pool ratios remain unrelated
+  to continuous-dictionary guarantees, and software tests are not scientific
+  PDE evidence.
 
 ## K. Exact piecewise-linear 1D Poisson certificate contract (design gate)
 
@@ -243,3 +241,66 @@ unrelated imports; README and API docs state this risk.
   P1 enclosure provenance, PDE solution error, K1/P2/P3/P4, convergence,
   comparative efficiency, and novelty remain **OPEN**. Solver integration is
   explicitly deferred to a separate review.
+
+## L. Stage-2 next gate design and package-layout confirmation
+
+- Audited the current architecture decision against `pyproject.toml`, `src/`,
+  docs, tests, examples, and CI: `src/` directly contains `core`, `problems`,
+  `enrichment`, `strategies`, plus the root modules `solver.py` and
+  `estimators_1d.py`. Public imports and CI tests use those top-level modules;
+  no `src/cem_framework/` umbrella package or compatibility namespace exists.
+  The project distribution identifier `cem-framework` is distinct from the
+  import namespace. The `src/cem_framework.egg-info/` directory is generated,
+  ignored build metadata; its `top_level.txt` lists the direct modules only.
+  No layout correction is indicated. `docs/api_reference.md` records this
+  distinction explicitly.
+- Added [`docs/stage2-next-gate.md`](docs/stage2-next-gate.md), a design-only
+  comparison of rigorous Gaussian/RBF interval provenance against exact local
+  FE/P1 integration. The recommended single next deliverable is a deterministic
+  P1 interior-hat weak learner over the fixed finite dictionary, selecting the
+  exact best directional gain and returning one certificate-backed Candidate.
+  It proposes `delta=epsilon=0` only for the exact bounded P1 model; it does not
+  claim solver-update certification, continuous-dictionary coverage, new
+  theory, or performance advantage. The document records exact cost accounting,
+  independent oracles, stress tests, CandidatePool boundaries, Xu & Xu and
+  Mishra–Molinaro/flux-estimator distinctions, expected claims, and No-Go gates.
+- **2026-11-11 approval and implementation update:** the reviewer approved the
+  bounded proposal-only P1 API. Added `P1Poisson1DRitzProblem` and the
+  top-level-module `P1PoissonHatWeakLearner` (`p1_poisson_hat.py`), preserving
+  the responsibility-package import boundaries; no `CEMSolver` hookup.
+  Metadata cap is checked
+  from a canonical pre-scan skeleton; actual/reserved hash and serialization
+  bytes are separately recorded, and candidate metadata serialization uses a
+  bounded convergence loop whose returned size is verified exactly. API
+  reference and this gate note now reflect implementation status. Latest local
+  validation: P1 tests 15/15; full suite 118/118; `compileall`; three existing
+  examples; `git diff --check`; offline wheel build and isolated install/import
+  all passed in TensorFlow Conda Python 3.11.13 (NumPy 2.4.6). Latest wheel
+  SHA-256: `d890ebb4e4ee398db163e746ae3b33eeca51e99921dca7364096da84d0de3e21`.
+  Independent source review remains pending. No commit or push was made.
+- **2026-11-11 final-review correction:** reviewer found the state-fingerprint
+  encoding did not distinguish absent outer coefficients from an empty
+  float64 vector. Added explicit `none`/`present` domain markers and dtype/
+  shape metadata; added a bidirectional fingerprint/change-detection test.
+  Re-ran the focused and full suites, examples, compileall, and offline wheel
+  validation after the correction; results and replacement wheel hash are
+  recorded above.
+- **2026-11-11 design clarification revision:** expanded the proposal budget
+  schema with exact defaults for omitted keys, strict rejection of malformed
+  values and unknown keys, and states that every table maximum is hard: callers
+  may omit or lower a cap but may not raise it; insufficient caps reject before
+  a nonempty scan rather than scan a dictionary prefix. Defined counts for hat
+  evaluations, local-cell visits, adapter cell visits/operator rows, the one
+  residual operator-row pass, and their aggregate row bound. For `N>1,K=0`,
+  active-ID validation is followed directly by `dictionary_exhausted` with no
+  residual recomputation, exact local preprocessing, scan reservation, or
+  certificate work; preflight exact rational work and proposal-path work
+  counters are zero. Added acceptance checks for `N=1` `empty_dictionary`
+  (operator-assembly/residual/candidate/certificate work counts zero; adapter
+  data/problem identity hashing at construction remains separately reported)
+  and for `tau=1` only
+  when `K>0` and maximum gain is positive; empty, exhausted, and all-zero
+  cases leave tau/weakness undefined. The former design-only status is
+  superseded by the approval and implementation update above. This remains a
+  proposal-only API gate: no solver hookup, PDE benchmark, research-plan or
+  manuscript edit, data or figure change, commit, or push is in scope.

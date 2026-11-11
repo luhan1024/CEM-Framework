@@ -8,6 +8,9 @@ provided by the responsibility packages `core`, `problems`, `enrichment`, and
 root modules. For example, import `CEMSolver` from `solver`, problem types from
 `problems`, candidate types from `enrichment`, and scoring policies from
 `strategies`. There is intentionally no umbrella import namespace.
+The distribution name `cem-framework` is a packaging identifier; it does not
+define a `cem_framework` import package. Generated `.egg-info` metadata is not
+an import package.
 
 These short top-level names are generic and can collide with unrelated
 modules. A dedicated environment or an isolated `src/` path is recommended.
@@ -38,6 +41,32 @@ freezes its arrays and metadata. `WeakLearner.propose(problem, state_snapshot,
 residual, budget)` returns a Candidate. `AnalyticLearner` and
 `LocalBasisLearner` are built-in examples. `element_id` uniqueness is enforced
 within the solver active set; audit workflows should not recycle identifiers.
+
+### Proposal-only finite P1 hat learner
+
+Import `P1HatProposalError` and `P1PoissonHatWeakLearner` from the top-level
+`p1_poisson_hat` module; `P1Poisson1DRitzProblem` is exported by `problems`.
+`P1Poisson1DRitzProblem(data)` is a matrix-free, immutable P1 Ritz adapter for
+the bounded zero-Dirichlet 1D Poisson data represented by
+`P1Poisson1DData`. `P1PoissonHatWeakLearner.propose(problem, state, residual,
+budget=None)` searches the finite inactive interior-hat dictionary using exact
+rational local gains and returns one best positive-gain `Candidate`. The
+supplied residual is a strict float64 shape/dtype/byte freshness check. The
+candidate provenance includes the selected full-domain certificate record and
+hash, fingerprints, deterministic tie rule, and actual/reserved work audit.
+The state fingerprint domain-separates `outer_coefficients=None` from a
+present vector and binds the present vector's dtype and shape, so an empty
+float64 array is a distinct state from `None`.
+
+No-candidate and rejected-preflight outcomes raise `P1HatProposalError` with
+finite `status`, `reason_code`, and immutable partial `work_audit`; statuses
+include `empty_dictionary`, `dictionary_exhausted`, `no_positive_gain`,
+`budget_exceeded`, `problem_state_mismatch`, `residual_mismatch`, and
+`active_set_invalid`. Budget overrides may lower documented caps but cannot
+raise them; metadata size, serialization bytes, and hash bytes are preflighted
+and recorded as actual/reserved quantities. This is a proposal-only API: it is
+not wired into `CEMSolver`, does not certify an accepted state update, and does
+not establish continuous-PDE error bounds, convergence, or performance claims.
 
 ## Scoring and policy
 

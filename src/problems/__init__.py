@@ -23,6 +23,7 @@ from .p1_poisson_1d import (
     certify_p1_poisson_step,
     verify_p1_poisson_step_certificate,
 )
+from .p1_poisson_ritz import P1Poisson1DRitzProblem
 
 __all__ = [
     "Operator",
@@ -43,4 +44,5 @@ __all__ = [
     "P1PoissonStepCertificate",
     "certify_p1_poisson_step",
     "verify_p1_poisson_step_certificate",
+    "P1Poisson1DRitzProblem",
 ]

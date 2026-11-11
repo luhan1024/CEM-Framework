@@ -532,6 +532,8 @@ def certify_p1_poisson_step(
     data: P1Poisson1DData,
     state_values: object,
     direction_values: object,
+    *,
+    _audit: dict[str, int] | None = None,
 ) -> P1PoissonStepCertificate:
     """Derive exact continuous ``c/q`` and line gain for the supported P1 case.
 
@@ -539,14 +541,29 @@ def certify_p1_poisson_step(
     interpreted as exact dyadic rationals. The function is pure and never
     updates a solver state.
     """
+    budget: _Budget | None = None
+    conversions = 0
+    payload_bytes = 0
+    hash_events = 0
+    hash_bytes = 0
     try:
+        if _audit is not None and type(_audit) is not dict:
+            raise TypeError("private certificate audit must be a dict")
         nodes_values, source_values, state_values, direction_values = _validate_live_inputs(
             data, state_values, direction_values)
         payload = _input_payload(nodes_values, source_values, state_values, direction_values)
         payload_json = _canonical_json(payload)
-        if len(payload_json.encode("utf-8")) > MAX_RECORD_JSON_BYTES:
+        payload_encoded = payload_json.encode("utf-8")
+        if len(payload_encoded) > MAX_RECORD_JSON_BYTES:
             raise _ResourceLimit("input_record_size_limit_exceeded")
-        input_digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        payload_bytes = len(payload_encoded)
+        input_hasher = hashlib.sha256()
+        input_hasher.update(payload_encoded)
+        hash_events += 1
+        hash_bytes += payload_bytes
+        input_digest = input_hasher.hexdigest()
+        conversions = (nodes_values.size + source_values.size + state_values.size
+                       + direction_values.size)
         nodes = _exact_binary64(nodes_values)
         source = _exact_binary64(source_values)
         state = _exact_binary64(state_values)
@@ -586,6 +603,16 @@ def certify_p1_poisson_step(
         return _failure("unsupported_resource_limit", "memory_resource_limit_exceeded")
     except Exception:
         return _failure("invalid_input", "internal_validation_failure")
+    finally:
+        if _audit is not None and type(_audit) is dict:
+            _audit.clear()
+            _audit.update({
+                "exact_rational_operations": 0 if budget is None else budget.operations,
+                "fraction_conversions": conversions,
+                "input_payload_bytes": payload_bytes,
+                "hash_events": hash_events,
+                "hash_bytes": hash_bytes,
+            })
 
 
 def verify_p1_poisson_step_certificate(

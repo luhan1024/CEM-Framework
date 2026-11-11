@@ -10,6 +10,7 @@ import unittest
 import core
 import enrichment
 import estimators_1d
+import p1_poisson_hat
 import problems
 import solver
 import strategies
@@ -29,7 +30,7 @@ PACKAGE_EXPORTS = {
         "build_polynomial_poisson_1d_enclosure",
         "verify_polynomial_poisson_1d_enclosure",
         "P1PoissonStepCertificate", "certify_p1_poisson_step",
-        "verify_p1_poisson_step_certificate",
+        "verify_p1_poisson_step_certificate", "P1Poisson1DRitzProblem",
     ),
     "enrichment": (
         "Candidate", "WeakLearner", "AnalyticLearner", "LocalBasisLearner",
@@ -69,6 +70,9 @@ PUBLIC_OWNERS = {
     "P1PoissonStepCertificate": "problems.p1_poisson_1d",
     "certify_p1_poisson_step": "problems.p1_poisson_1d",
     "verify_p1_poisson_step_certificate": "problems.p1_poisson_1d",
+    "P1Poisson1DRitzProblem": "problems.p1_poisson_ritz",
+    "P1HatProposalError": "p1_poisson_hat",
+    "P1PoissonHatWeakLearner": "p1_poisson_hat",
     "Candidate": "enrichment.learner",
     "WeakLearner": "enrichment.learner",
     "AnalyticLearner": "enrichment.learner",
@@ -93,7 +97,7 @@ PUBLIC_OWNERS = {
     "EquilibratedFlux1DEstimator": "estimators_1d",
 }
 
-ROOT_MODULES = {"solver", "estimators_1d"}
+ROOT_MODULES = {"solver", "estimators_1d", "p1_poisson_hat"}
 TOP_LEVEL_IMPORTS = {"core", "problems", "enrichment", "strategies", *ROOT_MODULES}
 ALLOWED_LAYER_IMPORTS = {
     "core": {"core"},
@@ -102,6 +106,7 @@ ALLOWED_LAYER_IMPORTS = {
     "strategies": {"strategies", "problems"},
     "solver": {"core", "problems", "enrichment", "strategies"},
     "estimators_1d": set(),
+    "p1_poisson_hat": {"core", "enrichment", "problems"},
 }
 
 
@@ -178,6 +183,8 @@ class PackageArchitectureTests(unittest.TestCase):
                     exported = solver.CEMSolver
                 elif public_name in {"P1Poisson1DData", "EstimatorRecord", "EquilibratedFlux1DEstimator"}:
                     exported = getattr(estimators_1d, public_name)
+                elif owner_name == "p1_poisson_hat":
+                    exported = getattr(p1_poisson_hat, public_name)
                 else:
                     package_name = owner_name.split(".", 1)[0]
                     package = package_objects[package_name]
