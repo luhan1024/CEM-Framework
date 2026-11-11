@@ -10,5 +10,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy>=1.24"]
 
 [tool.setuptools]
-packages = ["cem_framework"]
-package-dir = {cem_framework = "."}
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

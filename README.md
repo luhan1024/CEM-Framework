@@ -10,11 +10,11 @@ not imported or modified.
 From the project root:
 
 ```powershell
-$env:PYTHONPATH = "$PWD\Code"
-python Code/cem_framework/examples/poisson_smoke.py
-python Code/cem_framework/examples/poisson_ritz_regression.py
-python Code/cem_framework/examples/heterogeneous_ritz_pool.py
-python -m unittest discover -s Code/cem_framework/tests -v
+python -m pip install -e . -r requirements.txt
+python examples/poisson_smoke.py
+python examples/poisson_ritz_regression.py
+python examples/heterogeneous_ritz_pool.py
+python -m unittest discover -s tests -v
 ```
 
 `heterogeneous_ritz_pool.py` is a deterministic finite-dimensional SPD Ritz
@@ -88,8 +88,8 @@ empty and `outer_coefficients` must be `None` or empty for every policy.
 NumPy is the only core dependency. There are currently no built-in SciPy or
 PyTorch adapters; users may use those libraries inside their own operator,
 learner, or scorer components. Install locally with
-`python -m pip install -e Code/cem_framework` or run directly with
-`PYTHONPATH=Code`. Python 3.10+ is supported.
+`python -m pip install -e . -r requirements.txt`. Python 3.10+ is supported;
+the package uses a standard `src/cem_framework` layout.
 
 The current public package deliberately does not expose a BlockPolicy: block
 selection/refit semantics require a separate, explicit block candidate

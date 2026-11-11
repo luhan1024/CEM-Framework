@@ -1,4 +1,11 @@
+import sys
+from pathlib import Path
+
 import numpy as np
+
+SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 from cem_framework import CEMSolver, SolverState, LinearPDEProblem, AnalyticLearner, LocalBasisLearner, LinearCandidateScorer, MeritDecreasePolicy
 
 def main():

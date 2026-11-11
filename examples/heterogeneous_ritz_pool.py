@@ -13,11 +13,10 @@ from pathlib import Path
 
 import numpy as np
 
-# Make ``python Code/cem_framework/examples/heterogeneous_ritz_pool.py`` work
-# from the repository root without requiring an environment variable.
-CODE_ROOT = Path(__file__).resolve().parents[2]
-if str(CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(CODE_ROOT))
+# Allow direct execution from a checkout without requiring an editable install.
+SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from cem_framework import (  # noqa: E402
     AnalyticLearner,
