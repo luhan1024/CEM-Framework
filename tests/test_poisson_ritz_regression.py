@@ -10,8 +10,8 @@ import numpy as np
 
 class PoissonRitzRegressionTests(unittest.TestCase):
     def test_fixed_grid_root_regression_is_deterministic(self):
-        root = Path(__file__).resolve().parents[3]
-        script = root / "Code" / "cem_framework" / "examples" / "poisson_ritz_regression.py"
+        root = Path(__file__).resolve().parents[1]
+        script = root / "examples" / "poisson_ritz_regression.py"
         env = dict(os.environ)
         env.pop("PYTHONPATH", None)
         outputs = []

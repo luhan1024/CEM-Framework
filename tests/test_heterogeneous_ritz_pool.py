@@ -8,8 +8,8 @@ from pathlib import Path
 
 class HeterogeneousRitzTutorialTests(unittest.TestCase):
     def test_root_invocation_is_deterministic_and_audited(self):
-        root = Path(__file__).resolve().parents[3]
-        script = root / "Code" / "cem_framework" / "examples" / "heterogeneous_ritz_pool.py"
+        root = Path(__file__).resolve().parents[1]
+        script = root / "examples" / "heterogeneous_ritz_pool.py"
         env = dict(os.environ)
         env.pop("PYTHONPATH", None)
         outputs = []

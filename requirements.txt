@@ -1,3 +1,4 @@
-# Runtime dependency used by the CEM Framework.
-# Pinned to the version used in the verified local Python 3.11 environment.
-numpy==2.4.6
+# Runtime dependency pins for the supported Python 3.10–3.12 CI matrix.
+# NumPy 2.4.x requires Python >=3.11; use the final compatible 2.2.x pin on 3.10.
+numpy==2.2.6; python_version < "3.11"
+numpy==2.4.6; python_version >= "3.11"
