@@ -3,6 +3,7 @@ from __future__ import annotations
 from fractions import Fraction
 import hashlib
 import json
+from decimal import Decimal, localcontext
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from problems import (
     certify_discrete_ritz_step,
     verify_discrete_ritz_certificate,
 )
+from core import WorkLedger
 
 
 class DiscreteRitzCertificateTests(unittest.TestCase):
@@ -187,6 +189,179 @@ class DiscreteRitzCertificateTests(unittest.TestCase):
         self.assertTrue(verify_discrete_ritz_certificate(
             cert, DiscreteRitzProblem(np.ones((1, 1)), np.ones(1)),
             np.zeros(1), np.ones(1), 1.0, 3.0, 0.0, 2.0))
+
+    def test_analytic_poisson_fixture_checks_declared_enclosure_and_discrete_gain(self):
+        # Continuous problem: -u''=1 on (0,1), u(0)=u(1)=0, with
+        # psi=x(1-x). Exact integrals are c=1/6 and q=1/3. The certificate
+        # below concerns only the discrete float64 Ritz quadratic, not the
+        # continuous PDE energy.
+        continuous_c = Fraction(1, 6)
+        continuous_q = Fraction(1, 3)
+
+        # Independent high-precision Simpson path. Its integrands psi and
+        # (psi')^2 are degree-two polynomials, so Simpson is exact before
+        # Decimal rounding; this path is diagnostic, not the enclosure proof.
+        with localcontext() as context:
+            context.prec = 80
+            zero = Decimal(0)
+            half = Decimal(1) / Decimal(2)
+            one = Decimal(1)
+
+            def psi(x):
+                return x * (one - x)
+
+            def dpsi(x):
+                return one - Decimal(2) * x
+
+            c_simpson = (psi(zero) + Decimal(4) * psi(half) + psi(one)) / Decimal(6)
+            q_simpson = (dpsi(zero) ** 2 + Decimal(4) * dpsi(half) ** 2
+                         + dpsi(one) ** 2) / Decimal(6)
+        self.assertLess(abs(Fraction(c_simpson) - continuous_c), Fraction(1, 10**78))
+        self.assertLess(abs(Fraction(q_simpson) - continuous_q), Fraction(1, 10**78))
+
+        # Independently coded exact-rational two-subinterval midpoint rule.
+        # Its error is computed exactly here only for these stated polynomial
+        # integrands and this partition; no general quadrature claim is made.
+        midpoint_nodes = (Fraction(1, 4), Fraction(3, 4))
+        midpoint_c = sum((x * (1 - x) for x in midpoint_nodes), Fraction(0)) / 2
+        midpoint_q = sum(((1 - 2 * x) ** 2 for x in midpoint_nodes), Fraction(0)) / 2
+        self.assertEqual(midpoint_c, Fraction(3, 16))
+        self.assertEqual(midpoint_q, Fraction(1, 4))
+        self.assertEqual(abs(midpoint_c - continuous_c), Fraction(1, 48))
+        self.assertEqual(abs(midpoint_q - continuous_q), Fraction(1, 12))
+        self.assertLess(
+            abs((Fraction(c_simpson) - midpoint_c) - (continuous_c - midpoint_c)),
+            Fraction(1, 10**78),
+        )
+        self.assertLess(
+            abs((Fraction(q_simpson) - midpoint_q) - (continuous_q - midpoint_q)),
+            Fraction(1, 10**78),
+        )
+
+        K = np.array([[float(continuous_q)]], dtype=np.float64)
+        source = np.array([float(continuous_c)], dtype=np.float64)
+        u = np.array([0.0], dtype=np.float64)
+        phi = np.array([1.0], dtype=np.float64)
+        problem = DiscreteRitzProblem(K, source)
+        midpoint_c_hat = float(midpoint_c)
+        midpoint_q_hat = float(midpoint_q)
+
+        # Independent exact-rational oracle for the verifier's stored dyadic
+        # values and the midpoint centers. Outward conversion is checked back
+        # in Fraction arithmetic, including float64 coefficient error.
+        c_dyad = Fraction.from_float(float(problem.source[0]))
+        q_dyad = Fraction.from_float(float(problem.K[0, 0]))
+
+        def outward_radius(exact_radius):
+            rounded = float(exact_radius)
+            if Fraction.from_float(rounded) < exact_radius:
+                rounded = float(np.nextafter(rounded, np.inf))
+            self.assertGreaterEqual(Fraction.from_float(rounded), exact_radius)
+            return rounded
+
+        delta_exact = max(abs(c_dyad - midpoint_c),
+                          abs(continuous_c - midpoint_c))
+        epsilon_exact = max(abs(q_dyad - midpoint_q),
+                            abs(continuous_q - midpoint_q))
+        delta = outward_radius(delta_exact)
+        epsilon = outward_radius(epsilon_exact)
+        self.assertGreater(midpoint_q_hat, epsilon)
+
+        exact_fraction = lambda values: tuple(Fraction.from_float(float(x)) for x in values)
+        K_exact = tuple(tuple(Fraction.from_float(float(x)) for x in row) for row in problem.K)
+        source_exact = exact_fraction(problem.source)
+        u_exact = exact_fraction(u)
+        phi_exact = exact_fraction(phi)
+        chat_exact = Fraction.from_float(midpoint_c_hat)
+        qhat_exact = Fraction.from_float(midpoint_q_hat)
+        delta_dyad = Fraction.from_float(delta)
+        epsilon_dyad = Fraction.from_float(epsilon)
+        c_oracle = sum(((source_exact[i] - sum(
+            (K_exact[i][j] * u_exact[j] for j in range(len(u_exact))), Fraction(0)))
+            * phi_exact[i] for i in range(len(u_exact))), Fraction(0))
+        q_oracle = sum((phi_exact[i] * K_exact[i][j] * phi_exact[j]
+                        for i in range(len(phi_exact))
+                        for j in range(len(phi_exact))), Fraction(0))
+        self.assertEqual(c_oracle, c_dyad)
+        self.assertEqual(q_oracle, q_dyad)
+        self.assertLessEqual(abs(c_oracle - chat_exact), delta_dyad)
+        self.assertLessEqual(abs(q_oracle - qhat_exact), epsilon_dyad)
+        self.assertLessEqual(abs(continuous_c - chat_exact), delta_dyad)
+        self.assertLessEqual(abs(continuous_q - qhat_exact), epsilon_dyad)
+
+        # One-ULP-understated radii relative to the verifier's dyadic targets
+        # fail independently at their own gate (the main radii also cover the
+        # continuous analytic targets, which may require slightly more).
+        problem_for_c = DiscreteRitzProblem(K, source)
+        c_dyad_radius = outward_radius(abs(c_dyad - chat_exact))
+        c_too_small = float(np.nextafter(c_dyad_radius, 0.0))
+        c_rejected = certify_discrete_ritz_step(
+            problem_for_c, u.copy(), phi.copy(), midpoint_c_hat,
+            midpoint_q_hat, c_too_small, epsilon,
+        )
+        self.assertEqual(c_rejected.reason, "c_enclosure_failed")
+        problem_for_q = DiscreteRitzProblem(K, source)
+        q_dyad_radius = outward_radius(abs(q_dyad - qhat_exact))
+        self.assertLess(Fraction.from_float(q_dyad_radius),
+                        abs(continuous_q - qhat_exact))
+        q_too_small = float(np.nextafter(q_dyad_radius, 0.0))
+        q_rejected = certify_discrete_ritz_step(
+            problem_for_q, u.copy(), phi.copy(), midpoint_c_hat,
+            midpoint_q_hat, delta, q_too_small,
+        )
+        self.assertEqual(q_rejected.reason, "q_enclosure_failed")
+
+        # The certificate API has no solver/state-update handle. Attach the
+        # problem's actual work ledger and check every input/problem object it
+        # can reach across both certification and independent verification.
+        work_ledger = WorkLedger()
+        problem.work_ledger = work_ledger
+        arrays_before = tuple(array.tobytes() for array in (K, source, u, phi, problem.K, problem.source))
+        work_before = work_ledger.to_dicts()
+        problem_before = (problem.feasible, problem.spd_tol, problem.work_ledger,
+                          problem.K.flags.writeable, problem.source.flags.writeable)
+
+        cert = certify_discrete_ritz_step(
+            problem, u, phi, midpoint_c_hat, midpoint_q_hat, delta, epsilon,
+        )
+        self.assertEqual(cert.status, "verified_discrete_lower_bound")
+        self.assertTrue(verify_discrete_ritz_certificate(
+            cert, problem, u, phi, midpoint_c_hat, midpoint_q_hat, delta, epsilon))
+
+        # Independent exact discrete objective calculation; do not call the
+        # verifier's helper or DiscreteRitzProblem.objective.
+        s = max(abs(chat_exact) - delta_dyad, Fraction(0))
+        sign = 1 if chat_exact > 0 else (-1 if chat_exact < 0 else 0)
+        alpha_oracle = Fraction(sign) * s / (qhat_exact + epsilon_dyad)
+        trial_oracle = tuple(u_exact[i] + alpha_oracle * phi_exact[i]
+                             for i in range(len(u_exact)))
+
+        def exact_energy(values):
+            quadratic = sum((values[i] * K_exact[i][j] * values[j]
+                             for i in range(len(values))
+                             for j in range(len(values))), Fraction(0))
+            linear = sum((source_exact[i] * values[i]
+                          for i in range(len(values))), Fraction(0))
+            return quadratic / 2 - linear
+
+        direct_gain = exact_energy(u_exact) - exact_energy(trial_oracle)
+        lower_oracle = s * s / (2 * (qhat_exact + epsilon_dyad))
+        continuous_gain = alpha_oracle * continuous_c - (
+            alpha_oracle * alpha_oracle * continuous_q / 2)
+        self.assertEqual(alpha_oracle, cert.alpha)
+        self.assertEqual(direct_gain, cert.realized_gain)
+        self.assertEqual(lower_oracle, cert.lower_bound)
+        self.assertGreater(direct_gain, 0)
+        self.assertLessEqual(lower_oracle, direct_gain)
+        self.assertGreater(continuous_gain, 0)
+        self.assertLessEqual(lower_oracle, continuous_gain)
+
+        self.assertEqual(arrays_before, tuple(
+            array.tobytes() for array in (K, source, u, phi, problem.K, problem.source)))
+        self.assertEqual(work_ledger.to_dicts(), work_before)
+        self.assertEqual(problem_before, (
+            problem.feasible, problem.spd_tol, problem.work_ledger,
+            problem.K.flags.writeable, problem.source.flags.writeable))
 
 
 if __name__ == "__main__":

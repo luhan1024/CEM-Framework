@@ -124,3 +124,26 @@ unrelated imports; README and API docs state this risk.
   `43000717388` passed all six Ubuntu/Windows × Python 3.10/3.11/3.12 jobs for
   implementation commit `54f2e023a9150f7ecb8b3ae6558cd0c647eba39a`;
   independent scientific review remains pending.
+
+## H. Bounded analytic P1 fixture (general enclosure provenance remains open)
+
+- Added one deterministic test fixture for weak 1D Poisson on `(0,1)` with
+  homogeneous Dirichlet data, `f=1`, and `psi=x(1-x)`. It keeps the continuous
+  analytic values `c=1/6`, `q=1/3` distinct from the exact dyadic values of the
+  float64 `DiscreteRitzProblem` load and stiffness entries.
+- The fixture checks the analytic integrals with an independent 80-digit
+  Decimal Simpson calculation and checks a separate two-subinterval midpoint
+  rule using exact rational arithmetic. Its outward-rounded `delta` and
+  `epsilon` are derived exactly to enclose both the continuous analytic `c/q`
+  and the verifier's dyadic `c/q` around the midpoint centers. Thus they
+  include midpoint quadrature discrepancy and float64 coefficient
+  representation error. One-ULP-understated radii are tested independently.
+- Independent rational oracles compute discrete and continuous energy
+  decreases directly for this analytic fixture; both certificate and verifier
+  calls are checked for mutations to the supplied arrays, problem data, and
+  attached work ledger. No solver update or reusable continuous-PDE energy
+  certificate is claimed.
+- TensorFlow Conda Python 3.11.13: `compileall`, all 77 unittests, and all
+  three deterministic examples passed. This closes only the reviewed test
+  fixture. Reliable, reusable provenance for `delta/epsilon` on general
+  candidates and quadrature rules remains **OPEN**; P1 is not closed.
